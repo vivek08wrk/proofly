@@ -34,8 +34,9 @@
     "**/*.tsx",
     ".next/types/**/*.ts",
     ".next/dev/types/**/*.ts"
-, "../backend/src/lib/slugify.ts"  ],
+  ],
   "exclude": [
-    "node_modules"
+    "node_modules",
+    "../backend"
   ]
 }
