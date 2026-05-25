@@ -251,7 +251,7 @@ export const downloadSelectionZip = async (
     archive.pipe(res);
 
     // Handle archiver errors
-    archive.on("error", (err) => {
+    archive.on("error", (err: Error) => {
       console.error("Archiver error:", err);
       if (!res.headersSent) {
         next(createError("Failed to create ZIP archive.", 500));

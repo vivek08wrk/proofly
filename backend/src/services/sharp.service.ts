@@ -34,8 +34,7 @@ export const optimizeImage = async (
       quality: 80,
       progressive: true,        // Progressive JPEG for faster perceived load
       mozjpeg: true,            // Better compression algorithm
-    })
-    .withMetadata(false);       // Strip ALL metadata (EXIF, GPS, etc.)
+    });
 
   const { data, info } = await pipeline.toBuffer({ resolveWithObject: true });
 

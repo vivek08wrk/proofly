@@ -33,6 +33,7 @@
     "uuid": "^14.0.0"
   },
   "devDependencies": {
+    "@types/archiver": "^7.0.0",
     "@types/cookie-parser": "^1.4.10",
     "@types/express": "^5.0.6",
     "@types/mongoose": "^5.11.96",

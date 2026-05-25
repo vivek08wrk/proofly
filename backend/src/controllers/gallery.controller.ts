@@ -166,7 +166,7 @@ export const updateSelection = async (
 
     // Emit real-time update to photographer's dashboard
     // We import io here to avoid circular dependency
-    const { io } = await import("@/server");
+    const { io } = await import("../server.js");
 
     io.to(`project:${projectId.toString()}`).emit(
       "selection:updated",
