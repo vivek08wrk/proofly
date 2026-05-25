@@ -14,6 +14,17 @@ export const apiClient = axios.create({
   timeout: 30000, // 30 second timeout
 });
 
+// Request interceptor — attach localStorage token as fallback
+apiClient.interceptors.request.use((config) => {
+  if (typeof window !== "undefined") {
+    const token = localStorage.getItem("proofly_token");
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
+  }
+  return config;
+});
+
 // Response interceptor — handles global error cases
 apiClient.interceptors.response.use(
   (response) => response,
@@ -30,6 +41,7 @@ apiClient.interceptors.response.use(
     ) {
       // Redirect to login — handled by the calling component
       if (typeof window !== "undefined") {
+        localStorage.removeItem("proofly_token");
         window.location.href = "/login";
       }
     }

@@ -26,10 +26,16 @@ export const registerUser = createAsyncThunk<
   { rejectValue: string }
 >("auth/register", async (credentials, { rejectWithValue }) => {
   try {
-    const response = await apiClient.post<ApiResponse<{ user: AuthUser }>>(
+    const response = await apiClient.post<
+      ApiResponse<{ user: AuthUser; token?: string }>
+    >(
       "/auth/register",
       credentials
     );
+
+    if (typeof window !== "undefined" && response.data.data.token) {
+      localStorage.setItem("proofly_token", response.data.data.token);
+    }
     return response.data.data.user;
   } catch (error: unknown) {
     const err = error as { response?: { data?: { message?: string } } };
@@ -45,10 +51,16 @@ export const loginUser = createAsyncThunk<
   { rejectValue: string }
 >("auth/login", async (credentials, { rejectWithValue }) => {
   try {
-    const response = await apiClient.post<ApiResponse<{ user: AuthUser }>>(
+    const response = await apiClient.post<
+      ApiResponse<{ user: AuthUser; token?: string }>
+    >(
       "/auth/login",
       credentials
     );
+
+    if (typeof window !== "undefined" && response.data.data.token) {
+      localStorage.setItem("proofly_token", response.data.data.token);
+    }
     return response.data.data.user;
   } catch (error: unknown) {
     const err = error as { response?: { data?: { message?: string } } };
@@ -63,7 +75,13 @@ export const logoutUser = createAsyncThunk<void, void, { rejectValue: string }>(
   async (_, { rejectWithValue }) => {
     try {
       await apiClient.post("/auth/logout");
+      if (typeof window !== "undefined") {
+        localStorage.removeItem("proofly_token");
+      }
     } catch (error: unknown) {
+      if (typeof window !== "undefined") {
+        localStorage.removeItem("proofly_token");
+      }
       const err = error as { response?: { data?: { message?: string } } };
       return rejectWithValue(
         err.response?.data?.message ?? "Logout failed."
