@@ -1,6 +1,9 @@
-import { redirect } from "next/navigation";
-import { cookies } from "next/headers";
+"use client";
+
+import { useEffect } from "react";
+import { useRouter } from "next/navigation";
 import Navbar from "@/components/shared/Navbar";
+import { useAuth } from "@/hooks/useAuth";
 
 /**
  * Dashboard layout — server-side auth guard.
@@ -10,16 +13,22 @@ import Navbar from "@/components/shared/Navbar";
  * Note: Cookie presence check only. The actual JWT verification
  * happens on each API call via the protect middleware.
  */
-export default async function DashboardLayout({
+export default function DashboardLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  const cookieStore = await cookies();
-  const token = cookieStore.get("proofly_token");
+  const router = useRouter();
+  const { isAuthenticated, isLoading } = useAuth(false);
 
-  if (!token) {
-    redirect("/login");
+  useEffect(() => {
+    if (!isLoading && !isAuthenticated) {
+      router.replace("/login");
+    }
+  }, [isAuthenticated, isLoading, router]);
+
+  if (isLoading || !isAuthenticated) {
+    return null;
   }
 
   return (
