@@ -17,11 +17,12 @@ const app: Application = express();
 const httpServer = http.createServer(app);
 
 const FRONTEND_URL = process.env.FRONTEND_URL ?? "http://localhost:3000";
-console.log(`📋 Socket.IO CORS origin: ${FRONTEND_URL}`);
+const FRONTEND_ORIGIN = new URL(FRONTEND_URL).origin;
+console.log(`📋 Socket.IO CORS origin: ${FRONTEND_ORIGIN}`);
 
 export const io = new SocketIOServer(httpServer, {
   cors: {
-    origin: FRONTEND_URL,
+    origin: FRONTEND_ORIGIN,
     methods: ["GET", "POST"],
     credentials: true,
   },
@@ -59,7 +60,7 @@ io.on("error", (error) => {
 app.use(helmet());
 app.use(
   cors({
-    origin: process.env.FRONTEND_URL ?? "http://localhost:3000",
+    origin: FRONTEND_ORIGIN,
     credentials: true,
     methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"],
@@ -73,6 +74,14 @@ if (process.env.NODE_ENV === "development") {
 app.use(cookieParser());
 app.use(express.json({ limit: "10kb" }));
 app.use(express.urlencoded({ extended: true, limit: "10kb" }));
+
+app.get("/", (_req, res) => {
+  res.status(200).send("Proofly API is running");
+});
+
+app.get("/api/health", (_req, res) => {
+  res.status(200).json({ status: "ok" });
+});
 
 app.use("/api", apiRouter);
 app.use(globalErrorHandler);
