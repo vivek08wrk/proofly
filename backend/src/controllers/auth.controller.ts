@@ -74,6 +74,7 @@ export const register = async (
       success: true,
       message: "Account created successfully",
       data: {
+        token,
         user: {
           id: user._id.toString(),
           name: user.name,
@@ -135,6 +136,7 @@ export const login = async (
       success: true,
       message: "Logged in successfully",
       data: {
+        token,
         user: {
           id: user._id.toString(),
           name: user.name,
