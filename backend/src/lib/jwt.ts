@@ -44,7 +44,7 @@ export const attachTokenCookie = (
   res.cookie("proofly_token", token, {
     httpOnly: true,
     secure: isProduction,
-    sameSite: isProduction ? "strict" : "lax",
+    sameSite: isProduction ? "none" : "lax",
     maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days in milliseconds
     path: "/",
   });
@@ -54,8 +54,12 @@ export const attachTokenCookie = (
  * Clears the auth cookie — used during logout.
  */
 export const clearTokenCookie = (res: import("express").Response): void => {
+  const isProduction = process.env.NODE_ENV === "production";
+
   res.cookie("proofly_token", "", {
     httpOnly: true,
+    secure: isProduction,
+    sameSite: isProduction ? "none" : "lax",
     expires: new Date(0), // Expired immediately
     path: "/",
   });
