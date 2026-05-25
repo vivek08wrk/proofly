@@ -1,5 +1,7 @@
 import { Request, Response, NextFunction } from "express";
 import busboy from "busboy";
+import type { FileInfo } from "busboy";
+import type { Readable } from "node:stream";
 import mongoose from "mongoose";
 import path from "path";
 import Project from "@/models/Project.model";
@@ -174,7 +176,7 @@ export const uploadZip = async (
     let totalBytesReceived = 0;
 
     // Collect ZIP chunks into buffer
-    bb.on("file", (_fieldname, fileStream, fileInfo) => {
+    bb.on("file", (_fieldname: string, fileStream: Readable, fileInfo: FileInfo) => {
       fileReceived = true;
       originalZipFilename = fileInfo.filename || "master.zip";
       console.log(`📥 Busboy received file: ${originalZipFilename}`);
@@ -522,7 +524,7 @@ export const uploadFolder = async (
           }
         });
 
-        fileStream.on("error", (err) => {
+        fileStream.on("error", (err: Error) => {
           console.error("Folder file stream error:", err);
           resolve(null);
         });
