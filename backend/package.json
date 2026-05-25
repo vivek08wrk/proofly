@@ -5,7 +5,7 @@
   "main": "dist/server.js",
   "scripts": {
     "dev": "tsx watch src/server.ts",
-    "build": "tsc --project tsconfig.json",
+    "build": "tsc --project tsconfig.json && tsc-alias -p tsconfig.json",
     "start": "node dist/server.js",
     "lint": "tsc --noEmit"
   },
@@ -48,6 +48,7 @@
     "@types/socket.io": "^3.0.1",
     "@types/unzipper": "^0.10.11",
     "@types/uuid": "^10.0.0",
+    "tsc-alias": "^1.8.9",
     "tsx": "^4.22.3"
   }
 }
