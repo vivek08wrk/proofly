@@ -41,6 +41,7 @@ export default function UploadZone({ projectId }: UploadZoneProps) {
   const folderInputRef = useRef<HTMLInputElement | null>(null);
   const [uploadStartTime, setUploadStartTime] = useState<number | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const xhrRef = useRef<XMLHttpRequest | null>(null);
 
   // Connect to Socket.IO for real-time progress
   useUploadProgress(projectId);
@@ -74,26 +75,59 @@ export default function UploadZone({ projectId }: UploadZoneProps) {
       dispatch(startUpload({ fileName: file.name, projectId }));
 
       try {
-        const formData = new FormData();
-        formData.append("file", file);
+        dispatch(setUploadProgress(2));
 
-        await apiClient.post(`/upload/${projectId}`, formData, {
-          headers: { "Content-Type": "multipart/form-data" },
-          signal: abortControllerRef.current.signal,
-          timeout: 30 * 60 * 1000, // 30 min timeout for large ZIPs
-          onUploadProgress: (event) => {
-            if (!event.total) return;
-            const percent = Math.round((event.loaded / event.total) * 100);
-            dispatch(setUploadProgress(percent));
+        const presignedResponse = await apiClient.get<
+          { success: true; data: { presignedUrl: string; masterZipKey: string } }
+        >(`/upload/${projectId}/presigned-url`, {
+          params: {
+            filename: file.name,
+            filesize: String(file.size),
           },
         });
 
-        toast.success(
-          "Upload complete!: All photos have been processed successfully."
-        );
+        const { presignedUrl, masterZipKey } = presignedResponse.data.data;
+        dispatch(setUploadProgress(5));
 
-        // Refresh the page to show updated project
-        router.refresh();
+        await new Promise<void>((resolve, reject) => {
+          const xhr = new XMLHttpRequest();
+          xhrRef.current = xhr;
+
+          xhr.upload.addEventListener("progress", (event) => {
+            if (!event.lengthComputable) return;
+            const percent = Math.round(5 + (event.loaded / event.total) * 75);
+            dispatch(setUploadProgress(percent));
+          });
+
+          xhr.addEventListener("load", () => {
+            if (xhr.status >= 200 && xhr.status < 300) {
+              resolve();
+            } else {
+              reject(new Error(`R2 upload failed (${xhr.status})`));
+            }
+          });
+
+          xhr.addEventListener("error", () => {
+            reject(new Error("Network error during upload"));
+          });
+
+          xhr.addEventListener("abort", () => {
+            reject(new Error("Upload cancelled by user"));
+          });
+
+          xhr.open("PUT", presignedUrl);
+          xhr.setRequestHeader("Content-Type", "application/zip");
+          xhr.send(file);
+        });
+
+        dispatch(setUploadProgress(82));
+
+        await apiClient.post(`/upload/${projectId}/process`, {
+          masterZipKey,
+          originalFilename: file.name,
+        });
+
+        toast.success("ZIP uploaded. Processing started...");
       } catch (error: unknown) {
         // Don't show error message if upload was cancelled
         if (error instanceof Error && error.message === "Upload cancelled by user") {
@@ -173,6 +207,11 @@ export default function UploadZone({ projectId }: UploadZoneProps) {
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
       abortControllerRef.current = null;
+    }
+
+    if (xhrRef.current) {
+      xhrRef.current.abort();
+      xhrRef.current = null;
     }
 
     // Call backend to clean up R2 files and Photo records
