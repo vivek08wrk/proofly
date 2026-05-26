@@ -79,10 +79,6 @@ app.get("/", (_req, res) => {
   res.status(200).send("Proofly API is running");
 });
 
-app.get("/api/health", (_req, res) => {
-  res.status(200).json({ status: "ok" });
-});
-
 app.use("/api", apiRouter);
 app.use(globalErrorHandler);
 

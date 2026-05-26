@@ -11,7 +11,6 @@ router.get("/health", (_req, res) => {
   res.status(200).json({
     success: true,
     message: "Proofly API is running",
-    timestamp: new Date().toISOString(),
     environment: process.env.NODE_ENV,
   });
 });
