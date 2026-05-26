@@ -197,7 +197,6 @@ export const getPresignedUploadUrl = async (
         Bucket: process.env.R2_PRIVATE_BUCKET_NAME as string,
         Key: masterZipKey,
         ContentType: "application/zip",
-        ContentLength: Number(filesize),
       }),
       { expiresIn: 2 * 60 * 60 }
     );
