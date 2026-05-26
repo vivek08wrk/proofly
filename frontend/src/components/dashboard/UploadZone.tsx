@@ -18,6 +18,7 @@ import {
   startUpload,
   resetUpload,
   cancelUpload,
+  setUploadProgress,
 } from "@/store/slices/uploadSlice";
 import { useUploadProgress } from "@/hooks/useUploadProgress";
 import { apiClient } from "@/lib/api";
@@ -80,6 +81,11 @@ export default function UploadZone({ projectId }: UploadZoneProps) {
           headers: { "Content-Type": "multipart/form-data" },
           signal: abortControllerRef.current.signal,
           timeout: 30 * 60 * 1000, // 30 min timeout for large ZIPs
+          onUploadProgress: (event) => {
+            if (!event.total) return;
+            const percent = Math.round((event.loaded / event.total) * 100);
+            dispatch(setUploadProgress(percent));
+          },
         });
 
         toast.success(
@@ -133,6 +139,11 @@ export default function UploadZone({ projectId }: UploadZoneProps) {
           headers: { "Content-Type": "multipart/form-data" },
           signal: abortControllerRef.current.signal,
           timeout: 30 * 60 * 1000,
+          onUploadProgress: (event) => {
+            if (!event.total) return;
+            const percent = Math.round((event.loaded / event.total) * 100);
+            dispatch(setUploadProgress(percent));
+          },
         });
 
         toast.success(
