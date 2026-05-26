@@ -50,7 +50,7 @@ export const processZipAndUploadPreviews = async ({
 
   if (totalImages === 0) {
     throw new Error(
-      "No supported image files found in ZIP. Supported formats: JPG, PNG, WEBP, TIFF, HEIC"
+      "No supported image files found in ZIP. Supported formats: JPG, PNG, WEBP, TIFF"
     );
   }
 

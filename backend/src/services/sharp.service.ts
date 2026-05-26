@@ -65,6 +65,6 @@ export const isSupportedImageFile = (filename: string): boolean => {
     return false;
   }
 
-  const supportedExtensions = /\.(jpg|jpeg|png|webp|tiff|tif|heic|heif)$/i;
+  const supportedExtensions = /\.(jpg|jpeg|png|webp|tiff|tif)$/i;
   return supportedExtensions.test(filename);
 };
