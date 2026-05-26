@@ -21,6 +21,17 @@ export const getRedisClient = (): Redis => {
   redisClient = new Redis(redisUrl, {
     maxRetriesPerRequest: null, // Required by BullMQ — disables auto-retry limit
     enableReadyCheck: false,    // Required by BullMQ
+    retryStrategy: (times) => {
+      if (times > 3) {
+        return null;
+      }
+      return Math.min(times * 1000, 3000);
+    },
+    reconnectOnError: () => false,
+    lazyConnect: true,
+    keepAlive: 10000,
+    connectTimeout: 10000,
+    disconnectTimeout: 2000,
   });
 
   redisClient.on("connect", () => {
@@ -28,7 +39,9 @@ export const getRedisClient = (): Redis => {
   });
 
   redisClient.on("error", (err: Error) => {
-    console.error("❌ Redis connection error:", err.message);
+    if (!err.message.includes("ECONNRESET") && !err.message.includes("EPIPE")) {
+      console.error("❌ Redis error:", err.message);
+    }
   });
 
   return redisClient;

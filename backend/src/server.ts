@@ -14,6 +14,7 @@ import apiRouter from "@/routes/index";
 import { registerSocketHandlers } from "@/socket/selectionHandler";
 
 const app: Application = express();
+app.set("trust proxy", 1);
 const httpServer = http.createServer(app);
 
 const FRONTEND_URL = process.env.FRONTEND_URL ?? "http://localhost:3000";
@@ -87,7 +88,11 @@ const PORT = parseInt(process.env.PORT ?? "5000", 10);
 const startServer = async (): Promise<void> => {
   try {
     await connectDB();
-    getRedisClient();
+    try {
+      getRedisClient();
+    } catch (redisError) {
+      console.warn("⚠️ Redis unavailable — continuing without it");
+    }
 
     // ── Increase timeouts for large file uploads ────────────────────────────
     // Default is 2 minutes — too short for multi-GB uploads
@@ -95,7 +100,7 @@ const startServer = async (): Promise<void> => {
     httpServer.keepAliveTimeout = 65 * 60 * 1000; // 65 minutes
     httpServer.headersTimeout = 66 * 60 * 1000; // 66 minutes (must be > keepAliveTimeout)
 
-    httpServer.listen(PORT, () => {
+    httpServer.listen(PORT, "0.0.0.0", () => {
       console.log(`🚀 Proofly server running on port ${PORT}`);
       console.log(`📡 Environment: ${process.env.NODE_ENV}`);
       console.log(`🌐 Frontend URL: ${process.env.FRONTEND_URL}`);
