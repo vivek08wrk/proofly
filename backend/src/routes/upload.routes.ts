@@ -1,11 +1,15 @@
 import { Router } from "express";
-import { uploadFolder, uploadZip, cancelUpload } from "@/controllers/upload.controller";
 import {
+  uploadFolder,
+  uploadZip,
+  cancelUpload,
   createUploadSession,
   getPartUploadUrl,
   listUploadParts,
   completeUploadSession,
   abortUploadSession,
+  getPresignedUploadUrl,
+  processUploadedZip,
 } from "@/controllers/upload.controller";
 import { protect } from "@/middleware/auth.middleware";
 import rateLimit from "express-rate-limit";
@@ -24,6 +28,8 @@ const router = Router();
 
 router.post("/:projectId", protect, uploadRateLimiter, uploadZip);
 router.post("/:projectId/folder", protect, uploadRateLimiter, uploadFolder);
+router.get("/:projectId/presigned-url", protect, uploadRateLimiter, getPresignedUploadUrl);
+router.post("/:projectId/process", protect, uploadRateLimiter, processUploadedZip);
 router.delete("/:projectId/cancel", protect, cancelUpload);
 // Multipart resumable endpoints
 router.post("/:projectId/session", protect, createUploadSession);

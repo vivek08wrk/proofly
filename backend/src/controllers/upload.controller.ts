@@ -10,6 +10,8 @@ import { createReadStream, createWriteStream } from "fs";
 import Project from "@/models/Project.model";
 import Photo from "@/models/Photo.model";
 import { createError } from "@/middleware/error.middleware";
+import { PutObjectCommand } from "@aws-sdk/client-s3";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import {
   abortMultipartUpload,
   completeMultipartUpload,
@@ -26,6 +28,7 @@ import { processZipAndUploadPreviews } from "@/services/zip.service";
 import { isSupportedImageFile, optimizeImage } from "@/services/sharp.service";
 import { io } from "@/server";
 import UploadSession from "@/models/UploadSession.model";
+import { r2Client } from "@/config/r2";
 
 type ActiveUploadState = {
   startedAt: number;
@@ -105,6 +108,180 @@ const processZipFile = async (params: {
   });
 
   return processedPhotos.length;
+};
+
+const processZipInBackground = async (params: {
+  projectId: string;
+  photographerId: string;
+  masterZipKey: string;
+  originalFilename: string;
+  socketRoom: string;
+}) => {
+  const { projectId, photographerId, masterZipKey, socketRoom } = params;
+  let tempZipPath: string | null = null;
+
+  try {
+    tempZipPath = path.join(
+      os.tmpdir(),
+      `proofly-${projectId}-${Date.now()}-direct.zip`
+    );
+
+    io.to(socketRoom).emit("upload:progress", {
+      phase: "downloading",
+      percent: 10,
+      message: "Fetching ZIP from storage...",
+    });
+
+    await downloadPrivateObjectToFile(masterZipKey, tempZipPath);
+
+    await processZipFile({
+      zipFilePath: tempZipPath,
+      projectId,
+      photographerId,
+      socketRoom,
+    });
+  } finally {
+    if (tempZipPath && fs.existsSync(tempZipPath)) {
+      fs.unlinkSync(tempZipPath);
+      console.log(`🧹 Cleaned temp ZIP: ${tempZipPath}`);
+    }
+    clearActiveUpload(projectId);
+  }
+};
+
+/**
+ * GET /api/upload/:projectId/presigned-url
+ * Returns a presigned URL for direct browser -> R2 upload.
+ */
+export const getPresignedUploadUrl = async (
+  req: Request<
+    { projectId: string },
+    object,
+    object,
+    { filename?: string; filesize?: string }
+  >,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const { projectId } = req.params;
+    const { filename, filesize } = req.query;
+    const photographerId = req.user!.id;
+
+    if (!mongoose.Types.ObjectId.isValid(projectId)) {
+      throw createError("Invalid project ID.", 400);
+    }
+
+    const project = await Project.findOne({ _id: projectId, photographerId });
+    if (!project) {
+      throw createError("Project not found.", 404);
+    }
+
+    if (project.status === "ready") {
+      throw createError("Project already has photos.", 409);
+    }
+
+    if (!filename || !filesize) {
+      throw createError("filename and filesize are required.", 400);
+    }
+
+    const sanitizedFilename = String(filename)
+      .replace(/[^a-zA-Z0-9._-]/g, "_")
+      .toLowerCase();
+
+    const masterZipKey = `projects/${projectId}/masters/${sanitizedFilename}`;
+
+    const presignedUrl = await getSignedUrl(
+      r2Client,
+      new PutObjectCommand({
+        Bucket: process.env.R2_PRIVATE_BUCKET_NAME as string,
+        Key: masterZipKey,
+        ContentType: "application/zip",
+        ContentLength: Number(filesize),
+      }),
+      { expiresIn: 2 * 60 * 60 }
+    );
+
+    res.status(200).json({
+      success: true,
+      data: {
+        presignedUrl,
+        masterZipKey,
+        projectId,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * POST /api/upload/:projectId/process
+ * Trigger processing after direct R2 upload.
+ */
+export const processUploadedZip = async (
+  req: Request<
+    { projectId: string },
+    object,
+    { masterZipKey?: string; originalFilename?: string }
+  >,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const { projectId } = req.params;
+    const { masterZipKey, originalFilename } = req.body;
+    const photographerId = req.user!.id;
+    const socketRoom = `project:${projectId}`;
+
+    if (!mongoose.Types.ObjectId.isValid(projectId)) {
+      throw createError("Invalid project ID.", 400);
+    }
+
+    if (!masterZipKey || !originalFilename) {
+      throw createError("masterZipKey and originalFilename are required.", 400);
+    }
+
+    const project = await Project.findOne({ _id: projectId, photographerId });
+    if (!project) {
+      throw createError("Project not found.", 404);
+    }
+
+    if (project.status === "ready") {
+      throw createError("Project already has photos.", 409);
+    }
+
+    const existingUpload = activeUploads.get(projectId);
+    if (existingUpload && !existingUpload.canceled) {
+      throw createError("Upload already in progress for this project.", 409);
+    }
+
+    clearActiveUpload(projectId);
+    activeUploads.set(projectId, { startedAt: Date.now(), canceled: false });
+
+    res.status(202).json({
+      success: true,
+      message: "Processing started. Watch progress updates.",
+      data: { projectId },
+    });
+
+    processZipInBackground({
+      projectId,
+      photographerId,
+      masterZipKey,
+      originalFilename,
+      socketRoom,
+    }).catch(async (err) => {
+      console.error("Background processing failed:", err);
+      io.to(socketRoom).emit("upload:error", {
+        message: err instanceof Error ? err.message : "Processing failed.",
+      });
+      await Project.findByIdAndUpdate(projectId, { status: "error" });
+      clearActiveUpload(projectId);
+    });
+  } catch (error) {
+    next(error);
+  }
 };
 
 /**
