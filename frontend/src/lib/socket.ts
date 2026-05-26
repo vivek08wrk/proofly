@@ -16,7 +16,7 @@ export const getSocket = (): Socket => {
     process.env.NEXT_PUBLIC_SOCKET_URL ?? "http://localhost:5000",
     {
       withCredentials: true,
-      transports: ["websocket", "polling"],
+      transports: ["polling"],
       autoConnect: true,
     }
   );
