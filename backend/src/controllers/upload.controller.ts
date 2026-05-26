@@ -3,7 +3,10 @@ import busboy from "busboy";
 import type { FileInfo } from "busboy";
 import type { Readable } from "node:stream";
 import mongoose from "mongoose";
+import fs from "fs";
+import os from "os";
 import path from "path";
+import { createReadStream, createWriteStream } from "fs";
 import Project from "@/models/Project.model";
 import Photo from "@/models/Photo.model";
 import { createError } from "@/middleware/error.middleware";
@@ -13,8 +16,8 @@ import {
   createMultipartUpload,
   deleteR2Folder,
   getMultipartUploadPartUrl,
-  getPrivateObjectBuffer,
   listMultipartUploadParts,
+  downloadPrivateObjectToFile,
   uploadMasterZipToR2,
   uploadOriginalToR2,
   uploadPreviewToR2,
@@ -43,13 +46,13 @@ const clearActiveUpload = (projectId: string) => {
 const sanitizeFileName = (filename: string) =>
   filename.replace(/[^a-zA-Z0-9._-]/g, "_").toLowerCase();
 
-const processZipBuffer = async (params: {
-  zipBuffer: Buffer;
+const processZipFile = async (params: {
+  zipFilePath: string;
   projectId: string;
   photographerId: string;
   socketRoom: string;
 }) => {
-  const { zipBuffer, projectId, photographerId, socketRoom } = params;
+  const { zipFilePath, projectId, photographerId, socketRoom } = params;
 
   io.to(socketRoom).emit("upload:progress", {
     phase: "processing",
@@ -58,7 +61,7 @@ const processZipBuffer = async (params: {
   });
 
   const processedPhotos = await processZipAndUploadPreviews({
-    zipBuffer,
+    zipFilePath,
     projectId,
     io,
     socketRoom,
@@ -109,7 +112,7 @@ const processZipBuffer = async (params: {
  *
  * Full ZIP upload pipeline:
  * 1. Stream ZIP via busboy (low memory footprint)
- * 2. Accumulate ZIP bytes into a buffer
+ * 2. Stream ZIP to disk (temp file)
  * 3. Upload master ZIP to private R2
  * 4. Extract + optimize images → upload previews to public R2
  * 5. Save Photo documents to MongoDB
@@ -126,6 +129,7 @@ export const uploadZip = async (
   const { projectId } = req.params;
   const photographerId = req.user!.id;
   const socketRoom = `project:${projectId}`;
+  let tempZipPath: string | null = null;
 
   console.log(`📤 ZIP upload initiated for project: ${projectId}`);
   console.log(`🔌 Socket.IO room: ${socketRoom}`);
@@ -169,19 +173,18 @@ export const uploadZip = async (
     });
 
     console.log(`🔧 Busboy initialized with headers:`, req.headers);
-    let zipBuffer: Buffer | null = null;
     let originalZipFilename = "master.zip";
     let fileReceived = false;
-    let chunkCount = 0;
-    let totalBytesReceived = 0;
+    tempZipPath = path.join(
+      os.tmpdir(),
+      `proofly-${projectId}-${Date.now()}.zip`
+    );
 
-    // Collect ZIP chunks into buffer
+    // Stream ZIP directly to disk to avoid buffering in memory
     bb.on("file", (_fieldname: string, fileStream: Readable, fileInfo: FileInfo) => {
       fileReceived = true;
       originalZipFilename = fileInfo.filename || "master.zip";
       console.log(`📥 Busboy received file: ${originalZipFilename}`);
-
-      const chunks: Buffer[] = [];
 
       io.to(socketRoom).emit("upload:progress", {
         phase: "receiving",
@@ -189,20 +192,24 @@ export const uploadZip = async (
         message: "Receiving ZIP file...",
       });
 
-      fileStream.on("data", (chunk: Buffer) => {
-        chunks.push(chunk);
-        chunkCount++;
-        totalBytesReceived += chunk.length;
-        console.log(`📥 Chunk ${chunkCount} received: ${(chunk.length / 1024 / 1024).toFixed(2)}MB (total: ${(totalBytesReceived / 1024 / 1024).toFixed(2)}MB)`);
-      });
+      const zipPath = tempZipPath;
+      if (!zipPath) {
+        console.error("❌ Temp ZIP path not initialized.");
+        fileStream.resume();
+        return;
+      }
 
-      fileStream.on("end", () => {
-        zipBuffer = Buffer.concat(chunks);
-        console.log(`✅ File stream ended. Total chunks: ${chunkCount}, Total size: ${(totalBytesReceived / 1024 / 1024).toFixed(2)}MB`);
-      });
+      const writeStream = createWriteStream(zipPath);
+      fileStream.pipe(writeStream);
 
       fileStream.on("error", (err) => {
         console.error(`❌ File stream error:`, err);
+        writeStream.destroy();
+      });
+
+      writeStream.on("error", (err) => {
+        console.error(`❌ ZIP write error:`, err);
+        fileStream.resume();
       });
     });
 
@@ -220,12 +227,13 @@ export const uploadZip = async (
           throw createError("Upload cancelled.", 409);
         }
 
-        if (!fileReceived || !zipBuffer) {
+        if (!fileReceived || !tempZipPath || !fs.existsSync(tempZipPath)) {
           throw createError("No ZIP file received in the request.", 400);
         }
 
-        const zipSize = zipBuffer.length;
-        console.log(`📦 ZIP buffer received: ${(zipSize / 1024 / 1024).toFixed(2)}MB`);
+        const zipStats = fs.statSync(tempZipPath);
+        const zipSize = zipStats.size;
+        console.log(`📦 ZIP file received: ${(zipSize / 1024 / 1024).toFixed(2)}MB`);
 
         if (zipSize < 100) {
           throw createError("ZIP file appears to be empty or corrupted.", 400);
@@ -250,7 +258,7 @@ export const uploadZip = async (
         // Wrap with timeout (4 hours for 2.4GB at slow speeds)
         const uploadPromise = uploadMasterZipToR2(
           masterZipKey,
-          zipBuffer,
+          createReadStream(tempZipPath),
           "application/zip",
           (progressPercent) => {
             if (uploadState?.canceled) {
@@ -305,8 +313,8 @@ export const uploadZip = async (
 
         console.log(`✅ R2 upload complete! Starting extraction and processing...`);
 
-        const totalPhotos = await processZipBuffer({
-          zipBuffer,
+        const totalPhotos = await processZipFile({
+          zipFilePath: tempZipPath,
           projectId,
           photographerId,
           socketRoom,
@@ -334,6 +342,10 @@ export const uploadZip = async (
         next(processingError);
       } finally {
         clearActiveUpload(projectId);
+        if (tempZipPath && fs.existsSync(tempZipPath)) {
+          fs.unlinkSync(tempZipPath);
+          console.log(`🧹 Cleaned temp ZIP: ${tempZipPath}`);
+        }
       }
     });
 
@@ -341,6 +353,10 @@ export const uploadZip = async (
       const errorMessage = err instanceof Error ? err.message : "Unknown error";
       console.error(`❌ Busboy parsing error: ${errorMessage}`);
       clearActiveUpload(projectId);
+      if (tempZipPath && fs.existsSync(tempZipPath)) {
+        fs.unlinkSync(tempZipPath);
+        console.log(`🧹 Cleaned temp ZIP: ${tempZipPath}`);
+      }
       next(createError(`File parsing error: ${errorMessage}`, 400));
     });
 
@@ -352,10 +368,18 @@ export const uploadZip = async (
     req.on("error", (err) => {
       console.error(`❌ Request stream error:`, err);
       clearActiveUpload(projectId);
+      if (tempZipPath && fs.existsSync(tempZipPath)) {
+        fs.unlinkSync(tempZipPath);
+        console.log(`🧹 Cleaned temp ZIP: ${tempZipPath}`);
+      }
     });
   } catch (error) {
     console.error(`❌ Upload handler catch block:`, error);
     clearActiveUpload(projectId);
+    if (tempZipPath && fs.existsSync(tempZipPath)) {
+      fs.unlinkSync(tempZipPath);
+      console.log(`🧹 Cleaned temp ZIP: ${tempZipPath}`);
+    }
     next(error);
   }
 };
@@ -886,12 +910,17 @@ export const completeUploadSession = async (
       message: "Master ZIP uploaded. Starting processing...",
     });
 
-    // Fetch master ZIP and start processing asynchronously
+    // Fetch master ZIP to disk and start processing asynchronously
     (async () => {
+      const tempZipPath = path.join(
+        os.tmpdir(),
+        `proofly-${projectId}-${Date.now()}-multipart.zip`
+      );
+
       try {
-        const zipBuffer = await getPrivateObjectBuffer(session.r2Key);
-        await processZipBuffer({
-          zipBuffer,
+        await downloadPrivateObjectToFile(session.r2Key, tempZipPath);
+        await processZipFile({
+          zipFilePath: tempZipPath,
           projectId,
           photographerId,
           socketRoom,
@@ -900,6 +929,11 @@ export const completeUploadSession = async (
         console.error("Error processing completed multipart upload:", procErr);
         io.to(socketRoom).emit("upload:error", { message: "Processing failed after upload." });
         await Project.findByIdAndUpdate(projectId, { status: "error" });
+      } finally {
+        if (fs.existsSync(tempZipPath)) {
+          fs.unlinkSync(tempZipPath);
+          console.log(`🧹 Cleaned temp ZIP: ${tempZipPath}`);
+        }
       }
     })();
 

@@ -1,5 +1,4 @@
 import unzipper from "unzipper";
-import { Readable } from "stream";
 import path from "path";
 import { isSupportedImageFile, optimizeImage } from "@/services/sharp.service";
 import { uploadOriginalToR2, uploadPreviewToR2 } from "@/services/r2.service";
@@ -17,7 +16,7 @@ export interface ProcessedPhoto {
 }
 
 interface ProcessZipOptions {
-  zipBuffer: Buffer;
+  zipFilePath: string;
   projectId: string;
   io: SocketIOServer;
   socketRoom: string; // Room to emit progress to
@@ -33,16 +32,14 @@ interface ProcessZipOptions {
  * Each image buffer is GC'd after upload — peak memory ~ largest single image.
  */
 export const processZipAndUploadPreviews = async ({
-  zipBuffer,
+  zipFilePath,
   projectId,
   io,
   socketRoom,
 }: ProcessZipOptions): Promise<ProcessedPhoto[]> => {
   const processedPhotos: ProcessedPhoto[] = [];
 
-  // Convert buffer to readable stream for unzipper
-  const zipStream = Readable.from(zipBuffer);
-  const directory = await unzipper.Open.buffer(zipBuffer);
+  const directory = await unzipper.Open.file(zipFilePath);
 
   // Filter to only supported image files
   const imageEntries = directory.files.filter((entry) =>
@@ -67,7 +64,7 @@ export const processZipAndUploadPreviews = async ({
   });
 
   let processedCount = 0;
-  const concurrency = 4;
+  const concurrency = 1;
 
   const results = await mapWithConcurrency(
     imageEntries,
@@ -145,9 +142,6 @@ export const processZipAndUploadPreviews = async ({
   }
 
   processedPhotos.sort((a, b) => a.uploadOrder - b.uploadOrder);
-
-  // Suppress unused variable warning — zipStream was opened for unzipper
-  zipStream.destroy();
 
   return processedPhotos;
 };

@@ -1,5 +1,8 @@
 import sharp from "sharp";
 
+sharp.concurrency(1);
+sharp.cache(false);
+
 export interface OptimizedImageResult {
   buffer: Buffer;
   width: number;

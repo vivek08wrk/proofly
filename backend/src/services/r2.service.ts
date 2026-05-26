@@ -12,7 +12,9 @@ import {
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { Upload } from "@aws-sdk/lib-storage";
+import { createWriteStream } from "fs";
 import { Readable } from "stream";
+import { pipeline } from "stream/promises";
 import { r2Client } from "@/config/r2";
 
 const PUBLIC_BUCKET = process.env.R2_PUBLIC_BUCKET_NAME as string;
@@ -331,6 +333,24 @@ export const getPrivateObjectBuffer = async (key: string): Promise<Buffer> => {
   }
 
   return streamToBuffer(response.Body as Readable);
+};
+
+export const downloadPrivateObjectToFile = async (
+  key: string,
+  filePath: string
+): Promise<void> => {
+  const response = await r2Client.send(
+    new GetObjectCommand({
+      Bucket: PRIVATE_BUCKET,
+      Key: key,
+    })
+  );
+
+  if (!response.Body) {
+    throw new Error("R2 returned empty body for object.");
+  }
+
+  await pipeline(response.Body as Readable, createWriteStream(filePath));
 };
 
 export const createMultipartUpload = async (
