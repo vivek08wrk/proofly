@@ -74,6 +74,18 @@ export default function UploadZone({ projectId }: UploadZoneProps) {
 
       dispatch(startUpload({ fileName: file.name, projectId }));
 
+      let wakeLock: WakeLockSentinel | null = null;
+      try {
+        const navigatorWithWakeLock = navigator as Navigator & {
+          wakeLock?: { request: (type: "screen") => Promise<WakeLockSentinel> };
+        };
+        if (navigatorWithWakeLock.wakeLock) {
+          wakeLock = await navigatorWithWakeLock.wakeLock.request("screen");
+        }
+      } catch {
+        // Wake Lock API not available or denied.
+      }
+
       try {
         dispatch(setUploadProgress(2));
 
@@ -140,6 +152,12 @@ export default function UploadZone({ projectId }: UploadZoneProps) {
           err.response?.data?.message ?? "Upload failed. Please try again.";
 
         toast.error(`Upload failed: ${message}`);
+      } finally {
+        try {
+          await wakeLock?.release();
+        } catch {
+          // Ignore wake lock release errors.
+        }
       }
     },
     [projectId, dispatch, router]
