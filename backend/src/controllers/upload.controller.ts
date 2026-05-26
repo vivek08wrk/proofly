@@ -158,14 +158,14 @@ export const getPresignedUploadUrl = async (
     { projectId: string },
     object,
     object,
-    { filename?: string; filesize?: string }
+    { filename?: string }
   >,
   res: Response,
   next: NextFunction
 ): Promise<void> => {
   try {
     const { projectId } = req.params;
-    const { filename, filesize } = req.query;
+    const { filename } = req.query;
     const photographerId = req.user!.id;
 
     if (!mongoose.Types.ObjectId.isValid(projectId)) {
@@ -181,8 +181,8 @@ export const getPresignedUploadUrl = async (
       throw createError("Project already has photos.", 409);
     }
 
-    if (!filename || !filesize) {
-      throw createError("filename and filesize are required.", 400);
+    if (!filename) {
+      throw createError("filename is required.", 400);
     }
 
     const sanitizedFilename = String(filename)
