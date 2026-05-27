@@ -132,7 +132,19 @@ const processZipInBackground = async (params: {
       message: "Fetching ZIP from storage...",
     });
 
+    console.log(`🔑 Processing key: ${masterZipKey}`);
+    console.log("📥 Downloading from R2...");
+
     await downloadPrivateObjectToFile(masterZipKey, tempZipPath);
+
+    const zipStats = fs.statSync(tempZipPath);
+    console.log(
+      `✅ Downloaded: ${(zipStats.size / 1024 / 1024).toFixed(2)}MB to ${tempZipPath}`
+    );
+    const memSnapshot = process.memoryUsage();
+    console.log(
+      `📊 Memory: ${(memSnapshot.heapUsed / 1024 / 1024).toFixed(2)}MB / ${(memSnapshot.heapTotal / 1024 / 1024).toFixed(2)}MB`
+    );
 
     await processZipFile({
       zipFilePath: tempZipPath,
@@ -190,6 +202,7 @@ export const getPresignedUploadUrl = async (
       .toLowerCase();
 
     const masterZipKey = `projects/${projectId}/masters/${sanitizedFilename}`;
+    console.log(`🔑 Presigned key: ${masterZipKey}`);
 
     const presignedUrl = await getSignedUrl(
       r2Client,
@@ -239,6 +252,11 @@ export const processUploadedZip = async (
 
     if (!masterZipKey || !originalFilename) {
       throw createError("masterZipKey and originalFilename are required.", 400);
+    }
+
+    const expectedPrefix = `projects/${projectId}/masters/`;
+    if (!masterZipKey.startsWith(expectedPrefix)) {
+      throw createError("Invalid masterZipKey for this project.", 400);
     }
 
     const project = await Project.findOne({ _id: projectId, photographerId });
