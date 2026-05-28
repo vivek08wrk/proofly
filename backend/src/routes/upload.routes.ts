@@ -16,7 +16,7 @@ import {
 import { protect } from "@/middleware/auth.middleware";
 import rateLimit from "express-rate-limit";
 
-// Stricter rate limit for uploads — max 10 uploads per hour per IP
+// Stricter rate limit for large upload operations — max 10 per hour per IP
 const uploadRateLimiter = rateLimit({
   windowMs: 60 * 60 * 1000,
   max: 10,
@@ -26,14 +26,24 @@ const uploadRateLimiter = rateLimit({
   },
 });
 
+// Higher throughput limiter for per-photo metadata calls
+const uploadMetadataRateLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 600,
+  message: {
+    success: false,
+    message: "Too many photo metadata requests. Please try again shortly.",
+  },
+});
+
 const router = Router();
 
 router.post("/:projectId", protect, uploadRateLimiter, uploadZip);
 router.post("/:projectId/folder", protect, uploadRateLimiter, uploadFolder);
 router.get("/:projectId/presigned-url", protect, uploadRateLimiter, getPresignedUploadUrl);
 router.post("/:projectId/process", protect, uploadRateLimiter, processUploadedZip);
-router.get("/:projectId/preview-url", protect, uploadRateLimiter, getPreviewPresignedUrl);
-router.post("/:projectId/save-photo", protect, uploadRateLimiter, savePhotoMetadata);
+router.get("/:projectId/preview-url", protect, uploadMetadataRateLimiter, getPreviewPresignedUrl);
+router.post("/:projectId/save-photo", protect, uploadMetadataRateLimiter, savePhotoMetadata);
 router.delete("/:projectId/cancel", protect, cancelUpload);
 // Multipart resumable endpoints
 router.post("/:projectId/session", protect, createUploadSession);
