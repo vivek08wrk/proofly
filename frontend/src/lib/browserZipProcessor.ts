@@ -53,8 +53,15 @@ const getImageDimensions = (blob: Blob): Promise<{ width: number; height: number
   });
 };
 
-const compressImage = async (blob: Blob): Promise<Blob> => {
-  return imageCompression(blob, {
+const compressImage = async (blob: Blob, filename?: string): Promise<Blob> => {
+  const file =
+    blob instanceof File
+      ? blob
+      : new File([blob], filename ?? "image", {
+          type: blob.type || "application/octet-stream",
+        });
+
+  return imageCompression(file, {
     maxSizeMB: 0.8,
     maxWidthOrHeight: 2000,
     useWebWorker: true,
@@ -81,7 +88,7 @@ export const extractAndProcessZip = async (
     onProgress(index + 1, entries.length, originalFilename);
 
     const blob = await entry.async("blob");
-    const compressed = await compressImage(blob);
+    const compressed = await compressImage(blob, originalFilename);
     const { width, height } = await getImageDimensions(compressed);
 
     processed.push({
@@ -107,7 +114,7 @@ export const processIndividualImages = async (
     const file = files[index];
     onProgress(index + 1, files.length, file.name);
 
-    const compressed = await compressImage(file);
+    const compressed = await compressImage(file, file.name);
     const { width, height } = await getImageDimensions(compressed);
 
     processed.push({
