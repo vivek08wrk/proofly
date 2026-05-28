@@ -178,9 +178,6 @@ const getContentTypeForExtension = (extension: string): string => {
     case ".tiff":
     case ".tif":
       return "image/tiff";
-    case ".heic":
-    case ".heif":
-      return "image/heic";
     default:
       return "application/octet-stream";
   }

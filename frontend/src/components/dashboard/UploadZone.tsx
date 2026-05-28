@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useDropzone } from "react-dropzone";
 import {
@@ -9,7 +9,7 @@ import {
   CheckCircle2,
   AlertCircle,
   Loader2,
-  FolderOpen,
+  Images,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -17,258 +17,227 @@ import { useAppDispatch, useAppSelector } from "@/store/index";
 import {
   startUpload,
   resetUpload,
-  cancelUpload,
+  setUploadDone,
+  setUploadError,
   setUploadProgress,
 } from "@/store/slices/uploadSlice";
-import { useUploadProgress } from "@/hooks/useUploadProgress";
+import {
+  extractAndProcessZip,
+  processIndividualImages,
+} from "@/lib/browserZipProcessor";
+import {
+  getPreviewPresignedUrl,
+  uploadBlobToR2,
+  savePhotoMetadata,
+} from "@/lib/r2DirectUploader";
 import { apiClient } from "@/lib/api";
 import { toast } from "sonner";
-
-// Install react-dropzone
-// npm install react-dropzone
 
 interface UploadZoneProps {
   projectId: string;
 }
 
+const getContentTypeForFilename = (filename: string): string => {
+  const lower = filename.toLowerCase();
+  if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) return "image/jpeg";
+  if (lower.endsWith(".png")) return "image/png";
+  if (lower.endsWith(".webp")) return "image/webp";
+  if (lower.endsWith(".tiff") || lower.endsWith(".tif")) return "image/tiff";
+  if (lower.endsWith(".heic")) return "image/heic";
+  return "application/octet-stream";
+};
+
 export default function UploadZone({ projectId }: UploadZoneProps) {
   const dispatch = useAppDispatch();
   const router = useRouter();
-  const { status, progressPercent, fileName, errorMessage, currentProjectId } = useAppSelector(
+  const { status, progressPercent, errorMessage, currentProjectId } = useAppSelector(
     (state) => state.upload
   );
-  const [uploadMode, setUploadMode] = useState<"zip" | "folder">("zip");
-  const folderInputRef = useRef<HTMLInputElement | null>(null);
-  const [uploadStartTime, setUploadStartTime] = useState<number | null>(null);
-  const abortControllerRef = useRef<AbortController | null>(null);
-  const xhrRef = useRef<XMLHttpRequest | null>(null);
+  const [uploadMode, setUploadMode] = useState<"zip" | "photos">("zip");
+  const [currentFile, setCurrentFile] = useState<string>("");
 
-  // Connect to Socket.IO for real-time progress
-  useUploadProgress(projectId);
-
-  // Safety check: if upload state is for a different project, reset it
   useEffect(() => {
     if (status !== "idle" && currentProjectId && currentProjectId !== projectId) {
       dispatch(resetUpload());
     }
   }, [projectId, currentProjectId, status, dispatch]);
 
-  const isActive = status === "uploading" || status === "processing";
+  const isActive = status === "uploading";
 
-  const onDrop = useCallback(
-    async (acceptedFiles: File[]) => {
-      const file = acceptedFiles[0];
+  const runWithWakeLock = async (task: () => Promise<void>) => {
+    let wakeLock: WakeLockSentinel | null = null;
 
-      if (!file) return;
+    try {
+      const navigatorWithWakeLock = navigator as Navigator & {
+        wakeLock?: { request: (type: "screen") => Promise<WakeLockSentinel> };
+      };
+      if (navigatorWithWakeLock.wakeLock) {
+        wakeLock = await navigatorWithWakeLock.wakeLock.request("screen");
+      }
+    } catch {
+      // Wake Lock API not available or denied.
+    }
 
-      // Validate file type
-      if (!file.name.endsWith(".zip")) {
-        toast.error(
-          "Invalid file type: Please upload a .zip file containing your photos."
-        );
-        return;
+    try {
+      await task();
+    } finally {
+      try {
+        await wakeLock?.release();
+      } catch {
+        // Ignore wake lock release errors.
+      }
+    }
+  };
+
+  const uploadProcessedImages = useCallback(
+    async (processedImages: Awaited<ReturnType<typeof processIndividualImages>>) => {
+      if (processedImages.length === 0) {
+        throw new Error("No supported images found.");
       }
 
-      // Create new AbortController for this upload
-      abortControllerRef.current = new AbortController();
+      const totalPhotos = processedImages.length;
+
+      for (let index = 0; index < processedImages.length; index += 1) {
+        const processed = processedImages[index];
+        const presigned = await getPreviewPresignedUrl(
+          projectId,
+          processed.originalFilename,
+          apiClient
+        );
+
+        await uploadBlobToR2(presigned.presignedUrl, processed.blob, undefined, "image/jpeg");
+
+        const originalContentType = getContentTypeForFilename(processed.originalFilename);
+        await uploadBlobToR2(
+          presigned.originalPresignedUrl,
+          processed.blob,
+          undefined,
+          originalContentType
+        );
+
+        await savePhotoMetadata(
+          projectId,
+          {
+            originalFilename: processed.originalFilename,
+            previewUrl: presigned.previewUrl,
+            previewKey: presigned.previewKey,
+            originalKey: presigned.originalKey,
+            width: processed.width,
+            height: processed.height,
+            sizeBytes: processed.sizeBytes,
+            uploadOrder: processed.uploadOrder,
+            isLast: index === totalPhotos - 1,
+            totalPhotos,
+          },
+          apiClient
+        );
+
+        setCurrentFile(processed.originalFilename);
+        const percent = Math.round(60 + ((index + 1) / totalPhotos) * 40);
+        dispatch(setUploadProgress(percent));
+      }
+
+      dispatch(setUploadDone(projectId));
+      router.refresh();
+    },
+    [dispatch, projectId, router]
+  );
+
+  const onDropZip = useCallback(
+    async (acceptedFiles: File[]) => {
+      const file = acceptedFiles[0];
+      if (!file) return;
+
+      if (!file.name.toLowerCase().endsWith(".zip")) {
+        toast.error("Invalid file type: Please upload a .zip file containing your photos.");
+        return;
+      }
 
       dispatch(startUpload({ fileName: file.name, projectId }));
 
-      let wakeLock: WakeLockSentinel | null = null;
-      try {
-        const navigatorWithWakeLock = navigator as Navigator & {
-          wakeLock?: { request: (type: "screen") => Promise<WakeLockSentinel> };
-        };
-        if (navigatorWithWakeLock.wakeLock) {
-          wakeLock = await navigatorWithWakeLock.wakeLock.request("screen");
-        }
-      } catch {
-        // Wake Lock API not available or denied.
-      }
-
-      try {
-        dispatch(setUploadProgress(2));
-
-        const presignedResponse = await apiClient.get<
-          { success: true; data: { presignedUrl: string; masterZipKey: string } }
-        >(`/upload/${projectId}/presigned-url`, {
-          params: {
-            filename: file.name,
-            filesize: String(file.size),
-          },
-        });
-
-        const { presignedUrl, masterZipKey } = presignedResponse.data.data;
-        dispatch(setUploadProgress(5));
-
-        await new Promise<void>((resolve, reject) => {
-          const xhr = new XMLHttpRequest();
-          xhrRef.current = xhr;
-
-          xhr.upload.addEventListener("progress", (event) => {
-            if (!event.lengthComputable) return;
-            const percent = Math.round(5 + (event.loaded / event.total) * 75);
-            dispatch(setUploadProgress(percent));
-          });
-
-          xhr.addEventListener("load", () => {
-            if (xhr.status >= 200 && xhr.status < 300) {
-              resolve();
-            } else {
-              reject(new Error(`R2 upload failed (${xhr.status})`));
-            }
-          });
-
-          xhr.addEventListener("error", () => {
-            reject(new Error("Network error during upload"));
-          });
-
-          xhr.addEventListener("abort", () => {
-            reject(new Error("Upload cancelled by user"));
-          });
-
-          xhr.open("PUT", presignedUrl);
-          xhr.setRequestHeader("Content-Type", "application/zip");
-          xhr.send(file);
-        });
-
-        dispatch(setUploadProgress(82));
-
-        await apiClient.post(`/upload/${projectId}/process`, {
-          masterZipKey,
-          originalFilename: file.name,
-        });
-
-        toast.success("ZIP uploaded. Processing started...");
-      } catch (error: unknown) {
-        // Don't show error message if upload was cancelled
-        if (error instanceof Error && error.message === "Upload cancelled by user") {
-          toast.info("Upload cancelled.");
-          return;
-        }
-
-        const err = error as { response?: { data?: { message?: string } } };
-        const message =
-          err.response?.data?.message ?? "Upload failed. Please try again.";
-
-        toast.error(`Upload failed: ${message}`);
-      } finally {
+      await runWithWakeLock(async () => {
         try {
-          await wakeLock?.release();
-        } catch {
-          // Ignore wake lock release errors.
+          const processedImages = await extractAndProcessZip(
+            file,
+            (current, total, filename) => {
+              setCurrentFile(filename);
+              const percent = Math.round((current / total) * 60);
+              dispatch(setUploadProgress(percent));
+            }
+          );
+
+          await uploadProcessedImages(processedImages);
+        } catch (error: unknown) {
+          const err = error as { response?: { data?: { message?: string } } };
+          const message =
+            err.response?.data?.message ?? "Upload failed. Please try again.";
+
+          dispatch(setUploadError(message));
+          toast.error(`Upload failed: ${message}`);
         }
-      }
+      });
     },
-    [projectId, dispatch, router]
+    [dispatch, projectId, uploadProcessedImages]
   );
 
-  const handleFolderUpload = useCallback(
-    async (files: FileList | null) => {
-      if (!files || files.length === 0) return;
+  const onDropPhotos = useCallback(
+    async (acceptedFiles: File[]) => {
+      if (acceptedFiles.length === 0) return;
 
-      const imageFiles = Array.from(files).filter((file) =>
-        isImageFile(file.name)
-      );
+      dispatch(startUpload({ fileName: `${acceptedFiles.length} photos`, projectId }));
 
-      if (imageFiles.length === 0) {
-        toast.error("No supported images found in the folder.");
-        return;
-      }
+      await runWithWakeLock(async () => {
+        try {
+          const processedImages = await processIndividualImages(
+            acceptedFiles,
+            (current, total, filename) => {
+              setCurrentFile(filename);
+              const percent = Math.round((current / total) * 60);
+              dispatch(setUploadProgress(percent));
+            }
+          );
 
-      // Create new AbortController for this upload
-      abortControllerRef.current = new AbortController();
+          await uploadProcessedImages(processedImages);
+        } catch (error: unknown) {
+          const err = error as { response?: { data?: { message?: string } } };
+          const message =
+            err.response?.data?.message ?? "Upload failed. Please try again.";
 
-      dispatch(startUpload({ fileName: `${imageFiles.length} photos`, projectId }));
-
-      try {
-        const formData = new FormData();
-        for (const file of imageFiles) {
-          formData.append("files", file);
+          dispatch(setUploadError(message));
+          toast.error(`Upload failed: ${message}`);
         }
-
-        await apiClient.post(`/upload/${projectId}/folder`, formData, {
-          headers: { "Content-Type": "multipart/form-data" },
-          signal: abortControllerRef.current.signal,
-          timeout: 30 * 60 * 1000,
-          onUploadProgress: (event) => {
-            if (!event.total) return;
-            const percent = Math.round((event.loaded / event.total) * 100);
-            dispatch(setUploadProgress(percent));
-          },
-        });
-
-        toast.success(
-          "Upload complete!: All photos have been processed successfully."
-        );
-
-        router.refresh();
-      } catch (error: unknown) {
-        // Don't show error message if upload was cancelled
-        if (error instanceof Error && error.message === "Upload cancelled by user") {
-          toast.info("Upload cancelled.");
-          return;
-        }
-
-        const err = error as { response?: { data?: { message?: string } } };
-        const message =
-          err.response?.data?.message ?? "Upload failed. Please try again.";
-
-        toast.error(`Upload failed: ${message}`);
-      }
+      });
     },
-    [projectId, dispatch, router]
+    [dispatch, projectId, uploadProcessedImages]
   );
 
-  const handleCancel = useCallback(async () => {
-    // Abort the HTTP request
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
-      abortControllerRef.current = null;
-    }
-
-    if (xhrRef.current) {
-      xhrRef.current.abort();
-      xhrRef.current = null;
-    }
-
-    // Call backend to clean up R2 files and Photo records
-    try {
-      await apiClient.delete(`/upload/${projectId}/cancel`);
-      toast.info("Upload cancelled. Files removed from storage.");
-    } catch (error) {
-      console.error("Error cancelling upload:", error);
-      toast.error("Error cancelling upload. Please try again.");
-    }
-
-    // Update Redux state
-    dispatch(cancelUpload());
-  }, [projectId, dispatch]);
-
-  const { getRootProps, getInputProps, isDragActive } = useDropzone({
-    onDrop,
+  const {
+    getRootProps: getZipRootProps,
+    getInputProps: getZipInputProps,
+    isDragActive: isZipDragActive,
+  } = useDropzone({
+    onDrop: onDropZip,
     accept: { "application/zip": [".zip"] },
     maxFiles: 1,
-    disabled: isActive,
+    disabled: isActive || uploadMode !== "zip",
   });
 
-  useEffect(() => {
-    if (!folderInputRef.current) return;
-    folderInputRef.current.setAttribute("webkitdirectory", "");
-    folderInputRef.current.setAttribute("directory", "");
-  }, []);
-
-  useEffect(() => {
-    if (status === "uploading") {
-      setUploadStartTime((prev) => prev ?? Date.now());
-    }
-
-    if (status === "done" || status === "error" || status === "idle") {
-      setUploadStartTime(null);
-    }
-  }, [status]);
-
-  // ── Render States ─────────────────────────────────────────────────────────
+  const {
+    getRootProps: getPhotosRootProps,
+    getInputProps: getPhotosInputProps,
+    isDragActive: isPhotosDragActive,
+  } = useDropzone({
+    onDrop: onDropPhotos,
+    accept: {
+      "image/jpeg": [".jpg", ".jpeg"],
+      "image/png": [".png"],
+      "image/webp": [".webp"],
+      "image/tiff": [".tiff", ".tif"],
+      "image/heic": [".heic"],
+    },
+    maxFiles: 500,
+    disabled: isActive || uploadMode !== "photos",
+  });
 
   if (status === "done") {
     return (
@@ -298,123 +267,89 @@ export default function UploadZone({ projectId }: UploadZoneProps) {
     );
   }
 
-  if (status === "cancelled") {
-    return (
-      <div className="rounded-xl border border-orange-500/30 bg-orange-500/5 p-8 text-center space-y-3">
-        <AlertCircle className="h-12 w-12 text-orange-500 mx-auto" />
-        <p className="font-semibold text-foreground">Upload Cancelled</p>
-        <p className="text-sm text-muted-foreground">{errorMessage}</p>
-        <Button variant="outline" size="sm" onClick={() => dispatch(resetUpload())}>
-          Try Again
-        </Button>
-      </div>
-    );
-  }
-
   if (isActive) {
-    const etaText = getEstimatedTimeRemaining(
-      uploadStartTime,
-      progressPercent
-    );
     return (
       <div className="rounded-xl border border-border/50 bg-card p-8 space-y-4">
         <div className="text-center space-y-2">
           <Loader2 className="h-10 w-10 animate-spin text-primary mx-auto" />
           <p className="font-medium text-foreground">
-            {status === "uploading"
-              ? `Uploading ${fileName}...`
-              : "Optimizing photos..."}
+            {progressPercent < 60
+              ? "Extracting & optimizing photos..."
+              : "Uploading to cloud..."}
           </p>
-          <p className="text-sm text-muted-foreground">
-            Do not close this tab
-          </p>
+          {currentFile && (
+            <p className="text-sm text-muted-foreground">{currentFile}</p>
+          )}
+          <p className="text-xs text-muted-foreground">Do not close this tab</p>
         </div>
 
-        {/* Progress Bar */}
         <div className="space-y-1.5">
           <div className="flex justify-between text-xs text-muted-foreground">
-            <span>
-              {status === "uploading" ? "Uploading" : "Processing"}
-            </span>
+            <span>{progressPercent < 60 ? "Processing" : "Uploading"}</span>
             <span>{progressPercent}%</span>
           </div>
-          <div className="h-2 w-full bg-secondary rounded-full overflow-hidden">
+          <div className="h-2.5 w-full bg-secondary rounded-full overflow-hidden">
             <div
               className="h-full bg-primary rounded-full transition-all duration-300"
               style={{ width: `${progressPercent}%` }}
             />
           </div>
-          {etaText && (
-            <p className="text-xs text-muted-foreground text-right">
-              Estimated time remaining: {etaText}
-            </p>
-          )}
-        </div>
-
-        {/* Cancel Button */}
-        <div className="flex justify-center pt-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleCancel}
-            className="text-destructive hover:text-destructive"
-          >
-            Cancel Upload
-          </Button>
         </div>
       </div>
     );
   }
 
-  // ── Default: Dropzone ─────────────────────────────────────────────────────
-
   return (
     <div className="space-y-4">
-      <div className="flex items-center gap-2">
-        <Button
-          type="button"
-          variant={uploadMode === "zip" ? "default" : "outline"}
-          size="sm"
+      <div className="flex bg-muted rounded-xl p-1 gap-1">
+        <button
           onClick={() => setUploadMode("zip")}
+          className={cn(
+            "flex-1 flex items-center justify-center gap-2 py-2.5 px-4 rounded-lg text-sm font-medium transition-all duration-200",
+            uploadMode === "zip"
+              ? "bg-background text-foreground shadow-sm"
+              : "text-muted-foreground hover:text-foreground"
+          )}
         >
-          ZIP Upload
-        </Button>
-        <Button
-          type="button"
-          variant={uploadMode === "folder" ? "default" : "outline"}
-          size="sm"
-          onClick={() => setUploadMode("folder")}
+          <FileArchive className="h-4 w-4" />
+          ZIP File
+        </button>
+        <button
+          onClick={() => setUploadMode("photos")}
+          className={cn(
+            "flex-1 flex items-center justify-center gap-2 py-2.5 px-4 rounded-lg text-sm font-medium transition-all duration-200",
+            uploadMode === "photos"
+              ? "bg-background text-foreground shadow-sm"
+              : "text-muted-foreground hover:text-foreground"
+          )}
         >
-          Folder Upload
-        </Button>
+          <Images className="h-4 w-4" />
+          Individual Photos
+        </button>
       </div>
 
-      {uploadMode === "zip" ? (
+      {uploadMode === "zip" && (
         <div
-          {...getRootProps()}
+          {...getZipRootProps()}
           className={cn(
-            "rounded-xl border-2 border-dashed p-12 text-center cursor-pointer",
-            "transition-all duration-200",
-            isDragActive
+            "rounded-xl border-2 border-dashed p-12 text-center cursor-pointer transition-all duration-200",
+            isZipDragActive
               ? "border-primary bg-primary/5 scale-[1.01]"
               : "border-border/50 hover:border-border hover:bg-muted/30"
           )}
         >
-          <input {...getInputProps()} />
+          <input {...getZipInputProps()} />
           <div className="space-y-4">
             <div className="mx-auto w-16 h-16 rounded-2xl bg-muted flex items-center justify-center">
-              {isDragActive ? (
+              {isZipDragActive ? (
                 <Upload className="h-8 w-8 text-primary" />
               ) : (
                 <FileArchive className="h-8 w-8 text-muted-foreground" />
               )}
             </div>
-
             <div className="space-y-1">
               <p className="font-semibold text-foreground">
-                {isDragActive
-                  ? "Drop your ZIP here"
-                  : "Drag & drop your ZIP file"}
+                {isZipDragActive ? "Drop your ZIP here" : "Drag & drop your ZIP file"}
               </p>
               <p className="text-sm text-muted-foreground">
                 or{" "}
@@ -423,72 +358,54 @@ export default function UploadZone({ projectId }: UploadZoneProps) {
                 </span>
               </p>
             </div>
-
-            <p className="text-xs text-muted-foreground">
-              ZIP file containing JPG, PNG, WEBP, TIFF, or HEIC photos
-            </p>
+            <div className="space-y-1">
+              <p className="text-xs text-green-500 font-medium">
+                ✅ Any size ZIP supported — processed in your browser
+              </p>
+              <p className="text-xs text-muted-foreground">
+                Supports JPG, PNG, WEBP, TIFF, HEIC inside ZIP
+              </p>
+            </div>
           </div>
         </div>
-      ) : (
-        <div className="rounded-xl border-2 border-dashed p-8 text-center">
-          <div className="mx-auto w-16 h-16 rounded-2xl bg-muted flex items-center justify-center">
-            <FolderOpen className="h-8 w-8 text-muted-foreground" />
+      )}
+
+      {uploadMode === "photos" && (
+        <div
+          {...getPhotosRootProps()}
+          className={cn(
+            "rounded-xl border-2 border-dashed p-12 text-center cursor-pointer transition-all duration-200",
+            isPhotosDragActive
+              ? "border-primary bg-primary/5 scale-[1.01]"
+              : "border-border/50 hover:border-border hover:bg-muted/30"
+          )}
+        >
+          <input {...getPhotosInputProps()} />
+          <div className="space-y-4">
+            <div className="mx-auto w-16 h-16 rounded-2xl bg-muted flex items-center justify-center">
+              {isPhotosDragActive ? (
+                <Upload className="h-8 w-8 text-primary" />
+              ) : (
+                <Images className="h-8 w-8 text-muted-foreground" />
+              )}
+            </div>
+            <div className="space-y-1">
+              <p className="font-semibold text-foreground">
+                {isPhotosDragActive ? "Drop photos here" : "Drag & drop your photos"}
+              </p>
+              <p className="text-sm text-muted-foreground">
+                or{" "}
+                <span className="text-primary underline underline-offset-2">
+                  browse files
+                </span>
+              </p>
+            </div>
+            <p className="text-xs text-green-500 font-medium">
+              ✅ Up to 500 photos — select all with Ctrl+A
+            </p>
           </div>
-          <p className="mt-3 font-semibold text-foreground">
-            Upload a folder of photos
-          </p>
-          <p className="text-sm text-muted-foreground">
-            Only top-level images will be uploaded
-          </p>
-          <input
-            ref={folderInputRef}
-            type="file"
-            multiple
-            className="hidden"
-            onChange={(event) => handleFolderUpload(event.target.files)}
-          />
-          <Button
-            type="button"
-            className="mt-4 gap-2"
-            onClick={() => folderInputRef.current?.click()}
-            disabled={isActive}
-          >
-            <FolderOpen className="h-4 w-4" />
-            Choose Folder
-          </Button>
         </div>
       )}
     </div>
   );
 }
-
-const isImageFile = (filename: string): boolean => {
-  return /\.(jpg|jpeg|png|webp|tiff|tif|heic|heif)$/i.test(filename);
-};
-
-const getEstimatedTimeRemaining = (
-  startTime: number | null,
-  progressPercent: number
-): string | null => {
-  if (!startTime || progressPercent <= 0) return null;
-
-  const elapsedMs = Date.now() - startTime;
-  const remainingPercent = 100 - progressPercent;
-  if (remainingPercent <= 0) return null;
-
-  const totalMs = (elapsedMs / progressPercent) * 100;
-  const remainingMs = Math.max(totalMs - elapsedMs, 0);
-  return formatDuration(remainingMs);
-};
-
-const formatDuration = (durationMs: number): string => {
-  const totalSeconds = Math.round(durationMs / 1000);
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-
-  if (minutes > 0) {
-    return `${minutes}m ${seconds}s`;
-  }
-
-  return `${seconds}s`;
-};

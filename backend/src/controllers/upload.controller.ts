@@ -49,6 +49,26 @@ const clearActiveUpload = (projectId: string) => {
 const sanitizeFileName = (filename: string) =>
   filename.replace(/[^a-zA-Z0-9._-]/g, "_").toLowerCase();
 
+const getContentTypeForExtension = (filename: string): string => {
+  const extension = path.extname(filename).toLowerCase();
+  switch (extension) {
+    case ".jpg":
+    case ".jpeg":
+      return "image/jpeg";
+    case ".png":
+      return "image/png";
+    case ".webp":
+      return "image/webp";
+    case ".tiff":
+    case ".tif":
+      return "image/tiff";
+    case ".heic":
+      return "image/heic";
+    default:
+      return "application/octet-stream";
+  }
+};
+
 const processZipFile = async (params: {
   zipFilePath: string;
   projectId: string;
@@ -1171,5 +1191,184 @@ export const abortUploadSession = async (
     res.status(200).json({ success: true, message: "Upload aborted." });
   } catch (err) {
     next(err);
+  }
+};
+
+/**
+ * GET /api/upload/:projectId/preview-url
+ * Returns a presigned URL for uploading a preview image to the public bucket.
+ */
+export const getPreviewPresignedUrl = async (
+  req: Request<
+    { projectId: string },
+    object,
+    object,
+    { filename?: string }
+  >,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const { projectId } = req.params;
+    const { filename } = req.query;
+    const photographerId = req.user!.id;
+
+    if (!mongoose.Types.ObjectId.isValid(projectId)) {
+      throw createError("Invalid project ID.", 400);
+    }
+
+    const project = await Project.findOne({ _id: projectId, photographerId });
+    if (!project) {
+      throw createError("Project not found.", 404);
+    }
+
+    if (!filename) {
+      throw createError("filename is required.", 400);
+    }
+
+    const sanitizedFilename = sanitizeFileName(String(filename));
+    const baseName = sanitizedFilename.replace(/\.[^.]+$/, "");
+    const timestamp = Date.now();
+    const previewKey = `projects/${projectId}/previews/${timestamp}_${baseName}.jpg`;
+    const originalKey = `projects/${projectId}/originals/${timestamp}_${sanitizedFilename}`;
+
+    const presignedUrl = await getSignedUrl(
+      r2Client,
+      new PutObjectCommand({
+        Bucket: process.env.R2_PUBLIC_BUCKET_NAME as string,
+        Key: previewKey,
+        ContentType: "image/jpeg",
+      }),
+      { expiresIn: 60 * 60 }
+    );
+
+    const originalPresignedUrl = await getSignedUrl(
+      r2Client,
+      new PutObjectCommand({
+        Bucket: process.env.R2_PRIVATE_BUCKET_NAME as string,
+        Key: originalKey,
+        ContentType: getContentTypeForExtension(sanitizedFilename),
+      }),
+      { expiresIn: 60 * 60 }
+    );
+
+    const previewUrl = `${process.env.R2_PUBLIC_CDN_URL as string}/${previewKey}`;
+
+    res.status(200).json({
+      success: true,
+      data: {
+        presignedUrl,
+        previewKey,
+        previewUrl,
+        originalPresignedUrl,
+        originalKey,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * POST /api/upload/:projectId/save-photo
+ * Persists photo metadata for browser-processed uploads.
+ */
+export const savePhotoMetadata = async (
+  req: Request<
+    { projectId: string },
+    object,
+    {
+      originalFilename?: string;
+      previewUrl?: string;
+      previewKey?: string;
+      originalKey?: string;
+      width?: number;
+      height?: number;
+      sizeBytes?: number;
+      uploadOrder?: number;
+      isLast?: boolean;
+      totalPhotos?: number;
+    }
+  >,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const { projectId } = req.params;
+    const photographerId = req.user!.id;
+    const {
+      originalFilename,
+      previewUrl,
+      previewKey,
+      originalKey,
+      width,
+      height,
+      sizeBytes,
+      uploadOrder,
+      isLast,
+      totalPhotos,
+    } = req.body;
+
+    if (!mongoose.Types.ObjectId.isValid(projectId)) {
+      throw createError("Invalid project ID.", 400);
+    }
+
+    const project = await Project.findOne({ _id: projectId, photographerId });
+    if (!project) {
+      throw createError("Project not found.", 404);
+    }
+
+    if (
+      !originalFilename ||
+      !previewUrl ||
+      !previewKey ||
+      !originalKey ||
+      width === undefined ||
+      height === undefined ||
+      sizeBytes === undefined ||
+      uploadOrder === undefined ||
+      totalPhotos === undefined
+    ) {
+      throw createError("Missing required photo metadata.", 400);
+    }
+
+    const photo = await Photo.create({
+      projectId: new mongoose.Types.ObjectId(projectId),
+      photographerId: new mongoose.Types.ObjectId(photographerId),
+      originalFilename,
+      previewUrl,
+      r2PreviewKey: previewKey,
+      r2OriginalKey: originalKey,
+      width,
+      height,
+      sizeBytes,
+      uploadOrder,
+    });
+
+    if (isLast) {
+      const firstPhoto = await Photo.findOne({ projectId })
+        .sort({ uploadOrder: 1 })
+        .lean();
+
+      await Project.findByIdAndUpdate(projectId, {
+        status: "ready",
+        totalPhotos,
+        coverImageUrl: firstPhoto?.previewUrl ?? null,
+      });
+
+      console.log(`🎉 Project ${projectId} complete: ${totalPhotos} photos`);
+      io.to(`project:${projectId}`).emit("upload:complete", {
+        projectId,
+        totalPhotos,
+        message: "Photos ready!",
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      data: { saved: true, isLast: Boolean(isLast) },
+    });
+  } catch (error) {
+    next(error);
   }
 };
