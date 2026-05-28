@@ -925,26 +925,6 @@ export const cancelUpload = async (
   }
 };
 
-const getContentTypeForExtension = (extension: string): string => {
-  switch (extension) {
-    case ".jpg":
-    case ".jpeg":
-      return "image/jpeg";
-    case ".png":
-      return "image/png";
-    case ".webp":
-      return "image/webp";
-    case ".tiff":
-    case ".tif":
-      return "image/tiff";
-    case ".heic":
-    case ".heif":
-      return "image/heic";
-    default:
-      return "application/octet-stream";
-  }
-};
-
 const createConcurrencyLimiter = (limit: number) => {
   let active = 0;
   const queue: Array<() => void> = [];
