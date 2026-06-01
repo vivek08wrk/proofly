@@ -22,3 +22,7 @@ npm-debug.log*
 # Editor
 .vscode/
 .idea/
+
+# Local docs output
+docs/
+docs/~$*
