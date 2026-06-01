@@ -21,10 +21,7 @@ import {
   setUploadError,
   setUploadProgress,
 } from "@/store/slices/uploadSlice";
-import {
-  extractAndProcessZip,
-  processIndividualImages,
-} from "@/lib/browserZipProcessor";
+import { processIndividualImages } from "@/lib/browserZipProcessor";
 import {
   getPreviewPresignedUrl,
   uploadBlobToR2,
@@ -145,39 +142,124 @@ export default function UploadZone({ projectId }: UploadZoneProps) {
 
   const onDropZip = useCallback(
     async (acceptedFiles: File[]) => {
+      console.log("Step 1: Drop received", acceptedFiles.length);
       const file = acceptedFiles[0];
-      if (!file) return;
+      console.log("Step 2: File", file?.name, file?.size, file?.type);
+      if (!file) {
+        console.error("Step 2a: No file received");
+        return;
+      }
 
       if (!file.name.toLowerCase().endsWith(".zip")) {
+        console.error("Step 3: Invalid extension", file.name);
         toast.error("Invalid file type: Please upload a .zip file containing your photos.");
         return;
       }
 
       dispatch(startUpload({ fileName: file.name, projectId }));
+      dispatch(setUploadProgress(2));
+      console.log("Step 4: Upload started", projectId);
 
       await runWithWakeLock(async () => {
         try {
-          const processedImages = await extractAndProcessZip(
-            file,
-            (current, total, filename) => {
-              setCurrentFile(filename);
-              const percent = Math.round((current / total) * 60);
-              dispatch(setUploadProgress(percent));
-            }
+          console.log("Step 5: Requesting presigned URL");
+          const presignedRes = await apiClient.get(
+            `/upload/${projectId}/presigned-url?` +
+              `filename=${encodeURIComponent(file.name)}&filesize=${file.size}`
           );
 
-          await uploadProcessedImages(processedImages);
+          console.log("Step 6: Presigned URL response", presignedRes?.data?.success);
+
+          const { presignedUrl, masterZipKey } = presignedRes.data.data;
+          if (!presignedUrl || !masterZipKey) {
+            throw new Error("Presigned URL missing from response.");
+          }
+
+          dispatch(setUploadProgress(5));
+          console.log("Step 7: Uploading ZIP to R2", presignedUrl);
+
+          await new Promise<void>((resolve, reject) => {
+            const xhr = new XMLHttpRequest();
+
+            xhr.upload.addEventListener("progress", (event) => {
+              if (event.lengthComputable) {
+                const pct = Math.round(5 + (event.loaded / event.total) * 75);
+                dispatch(setUploadProgress(pct));
+                console.log("Step 7a: Upload progress", pct);
+              }
+            });
+
+            xhr.addEventListener("load", () => {
+              if (xhr.status >= 200 && xhr.status < 300) {
+                console.log("Step 7b: R2 upload complete", xhr.status);
+                resolve();
+              } else {
+                reject(new Error(`R2 upload failed: ${xhr.status}`));
+              }
+            });
+
+            xhr.addEventListener("error", () => {
+              reject(new Error("Network error while uploading to R2."));
+            });
+
+            xhr.open("PUT", presignedUrl);
+            xhr.setRequestHeader("Content-Type", "application/zip");
+            xhr.send(file);
+          });
+
+          dispatch(setUploadProgress(82));
+          console.log("Step 8: Notifying backend to process", masterZipKey);
+
+          await apiClient.post(`/upload/${projectId}/process`, {
+            masterZipKey,
+            originalFilename: file.name,
+          });
+
+          console.log("Step 9: Starting poll for project readiness");
+          let attempts = 0;
+          const poll = setInterval(async () => {
+            attempts += 1;
+            try {
+              const res = await apiClient.get(`/projects/${projectId}`);
+              const statusValue = res.data.data.project.status;
+              const total = res.data.data.project.totalPhotos;
+
+              console.log("Step 9a: Poll response", statusValue, total, attempts);
+
+              if (statusValue === "ready") {
+                clearInterval(poll);
+                dispatch(setUploadDone(projectId));
+                router.refresh();
+              } else if (statusValue === "error") {
+                clearInterval(poll);
+                dispatch(setUploadError("Processing failed. Try again."));
+              } else if (attempts > 60) {
+                clearInterval(poll);
+              } else {
+                const pct = Math.min(83 + attempts * 0.2, 98);
+                dispatch(setUploadProgress(Math.round(pct)));
+              }
+            } catch (pollError) {
+              console.error("Step 9b: Poll failed", pollError);
+            }
+          }, 5000);
         } catch (error: unknown) {
-          const err = error as { response?: { data?: { message?: string } } };
+          console.error("ZIP upload error:", error);
+          const err = error as {
+            response?: { data?: { message?: string } };
+            message?: string;
+          };
           const message =
-            err.response?.data?.message ?? "Upload failed. Please try again.";
+            err.response?.data?.message ??
+            err.message ??
+            "Upload failed. Please try again.";
 
           dispatch(setUploadError(message));
           toast.error(`Upload failed: ${message}`);
         }
       });
     },
-    [dispatch, projectId, uploadProcessedImages]
+    [dispatch, projectId, router]
   );
 
   const onDropPhotos = useCallback(
