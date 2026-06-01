@@ -11,6 +11,9 @@ node_modules/
 dist/
 build/
 
+# Docs output
+docs/
+
 # OS files
 .DS_Store
 Thumbs.db
@@ -22,7 +25,3 @@ npm-debug.log*
 # Editor
 .vscode/
 .idea/
-
-# Local docs output
-docs/
-docs/~$*
