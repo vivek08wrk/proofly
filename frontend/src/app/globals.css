@@ -5,7 +5,7 @@
 @custom-variant dark (&:is(.dark *));
 
 :root {
-  --background: oklch(1 0 0);
+  --background: oklch(0.99 0.002 286);
   --foreground: oklch(0.141 0.005 285.823);
   --card: oklch(1 0 0);
   --card-foreground: oklch(0.141 0.005 285.823);
@@ -23,8 +23,14 @@
   --destructive-foreground: oklch(0.985 0 0);
   --border: oklch(0.92 0.004 286.32);
   --input: oklch(0.92 0.004 286.32);
-  --ring: oklch(0.705 0.015 286.067);
-  --radius: 0.625rem;
+  --ring: oklch(0.585 0.233 277);
+  --radius: 0.75rem;
+
+  /* Brand accent — indigo → violet → fuchsia gradient family */
+  --brand: oklch(0.585 0.233 277);
+  --brand-foreground: oklch(0.985 0 0);
+  --brand-2: oklch(0.62 0.25 318);
+  --brand-3: oklch(0.68 0.18 235);
 }
 
 .dark {
@@ -46,7 +52,12 @@
   --destructive-foreground: oklch(0.985 0 0);
   --border: oklch(1 0 0 / 10%);
   --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.552 0.016 285.938);
+  --ring: oklch(0.673 0.21 277);
+
+  --brand: oklch(0.673 0.21 277);
+  --brand-foreground: oklch(0.985 0 0);
+  --brand-2: oklch(0.7 0.22 318);
+  --brand-3: oklch(0.72 0.16 235);
 }
 
 @theme inline {
@@ -69,17 +80,131 @@
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
+  --color-brand: var(--brand);
+  --color-brand-foreground: var(--brand-foreground);
+  --color-brand-2: var(--brand-2);
+  --color-brand-3: var(--brand-3);
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
+
+  --animate-float: float 14s ease-in-out infinite;
+  --animate-float-slow: float 22s ease-in-out infinite;
+  --animate-fade-up: fade-up 0.6s cubic-bezier(0.22, 1, 0.36, 1) both;
+  --animate-fade-in: fade-in 0.5s ease-out both;
+  --animate-shine: shine 2.5s ease-in-out infinite;
+}
+
+@keyframes float {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
+  33% { transform: translate3d(3%, -4%, 0) scale(1.06); }
+  66% { transform: translate3d(-3%, 3%, 0) scale(0.96); }
+}
+
+@keyframes fade-up {
+  from { opacity: 0; transform: translateY(14px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes shine {
+  0% { background-position: 200% center; }
+  100% { background-position: -200% center; }
 }
 
 * {
   border-color: var(--border);
 }
 
+html {
+  scroll-behavior: smooth;
+}
+
 body {
   background-color: var(--background);
   color: var(--foreground);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+/* ─── Brand utilities ──────────────────────────────────────────────── */
+
+.brand-gradient {
+  background-image: linear-gradient(
+    135deg,
+    var(--brand-3) 0%,
+    var(--brand) 45%,
+    var(--brand-2) 100%
+  );
+}
+
+.text-brand-gradient {
+  background-image: linear-gradient(
+    100deg,
+    var(--brand-3) 0%,
+    var(--brand) 50%,
+    var(--brand-2) 100%
+  );
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* Frosted-glass surface */
+.glass {
+  background-color: color-mix(in oklch, var(--card) 70%, transparent);
+  backdrop-filter: blur(20px) saturate(160%);
+  -webkit-backdrop-filter: blur(20px) saturate(160%);
+}
+
+/* Soft elevated shadow used across cards/buttons */
+.shadow-soft {
+  box-shadow:
+    0 1px 2px oklch(0 0 0 / 0.04),
+    0 8px 24px oklch(0 0 0 / 0.06),
+    0 24px 48px oklch(0 0 0 / 0.04);
+}
+
+.shadow-brand {
+  box-shadow: 0 10px 30px -8px color-mix(in oklch, var(--brand) 55%, transparent);
+}
+
+/* Decorative blurred blob used in auth/marketing backdrops */
+.blob {
+  position: absolute;
+  border-radius: 9999px;
+  filter: blur(60px);
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+/* Subtle grid / dotted texture overlay */
+.bg-grid {
+  background-image:
+    linear-gradient(to right, oklch(0 0 0 / 0.04) 1px, transparent 1px),
+    linear-gradient(to bottom, oklch(0 0 0 / 0.04) 1px, transparent 1px);
+  background-size: 36px 36px;
+}
+
+.dark .bg-grid {
+  background-image:
+    linear-gradient(to right, oklch(1 0 0 / 0.05) 1px, transparent 1px),
+    linear-gradient(to bottom, oklch(1 0 0 / 0.05) 1px, transparent 1px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

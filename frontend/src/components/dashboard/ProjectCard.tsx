@@ -59,7 +59,7 @@ export default function ProjectCard({ project, onDelete }: ProjectCardProps) {
   const status = statusConfig[project.status];
 
   return (
-    <div className="group relative bg-card border border-border/50 rounded-xl overflow-hidden transition-all duration-200 hover:border-border hover:shadow-lg">
+    <div className="group relative overflow-hidden rounded-xl border border-border/50 bg-card transition-all duration-300 hover:-translate-y-1 hover:border-brand/30 hover:shadow-soft">
       {/* Cover Image / Placeholder */}
       <div className="relative aspect-[4/3] bg-muted overflow-hidden">
         {project.coverImageUrl ? (

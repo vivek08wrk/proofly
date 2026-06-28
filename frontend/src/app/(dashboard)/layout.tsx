@@ -32,11 +32,19 @@ export default function DashboardLayout({
   }
 
   return (
-    <div className="min-h-screen bg-background">
-      <Navbar />
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {children}
-      </main>
+    <div className="relative min-h-screen overflow-hidden bg-background">
+      {/* Ambient brand glow backdrop */}
+      <div className="pointer-events-none absolute inset-0 overflow-hidden">
+        <div className="blob right-[-10%] top-[-12%] h-96 w-96 bg-brand/10" />
+        <div className="blob left-[-8%] top-[20%] h-80 w-80 bg-brand-2/10" />
+      </div>
+
+      <div className="relative z-10">
+        <Navbar />
+        <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+          {children}
+        </main>
+      </div>
     </div>
   );
 }

@@ -143,10 +143,10 @@ export default function DashboardPage() {
       {/* Page Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-foreground">
-            Your Projects
+          <h1 className="text-3xl font-bold tracking-tight text-foreground">
+            Your <span className="text-brand-gradient">Projects</span>
           </h1>
-          <p className="text-muted-foreground text-sm mt-1">
+          <p className="text-muted-foreground text-sm mt-1.5">
             {projects.length > 0
               ? `${projects.length} project${projects.length === 1 ? "" : "s"}`
               : "No projects yet — create your first one"}
@@ -156,7 +156,7 @@ export default function DashboardPage() {
         {/* Create Project Dialog */}
         <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
           <DialogTrigger asChild>
-            <Button className="gap-2 w-full sm:w-auto">
+            <Button className="brand-gradient h-10 w-full gap-2 px-4 font-semibold text-white shadow-brand transition-all hover:opacity-95 hover:shadow-lg sm:w-auto">
               <Plus className="h-4 w-4" />
               New Project
             </Button>
@@ -257,22 +257,35 @@ export default function DashboardPage() {
 
       {/* Projects Grid */}
       {projects.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-24 text-center">
-          <div className="rounded-full bg-muted p-6 mb-4">
-            <FolderOpen className="h-10 w-10 text-muted-foreground" />
+        <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-border bg-card/40 py-24 text-center animate-fade-up">
+          <div className="brand-gradient mb-5 flex h-16 w-16 items-center justify-center rounded-2xl text-white shadow-brand">
+            <FolderOpen className="h-8 w-8" />
           </div>
           <h3 className="text-lg font-semibold text-foreground">
             No projects yet
           </h3>
-          <p className="text-muted-foreground text-sm mt-1 max-w-xs">
+          <p className="text-muted-foreground text-sm mt-1.5 max-w-xs">
             Create your first project to start delivering stunning galleries to
             your clients.
           </p>
+          <Button
+            onClick={() => setDialogOpen(true)}
+            className="brand-gradient mt-6 h-10 gap-2 px-4 font-semibold text-white shadow-brand transition-all hover:opacity-95 hover:shadow-lg"
+          >
+            <Plus className="h-4 w-4" />
+            New Project
+          </Button>
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-          {projects.map((project) => (
-            <ProjectCard key={project.id} project={project} onDelete={handleDeleteProject} />
+          {projects.map((project, i) => (
+            <div
+              key={project.id}
+              className="animate-fade-up"
+              style={{ animationDelay: `${Math.min(i, 8) * 60}ms` }}
+            >
+              <ProjectCard project={project} onDelete={handleDeleteProject} />
+            </div>
           ))}
         </div>
       )}
