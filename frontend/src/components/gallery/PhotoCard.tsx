@@ -30,16 +30,16 @@ const PhotoCard = memo(function PhotoCard({
   return (
     <div
       className={cn(
-        "relative group cursor-pointer rounded-lg overflow-hidden",
-        "transition-all duration-200",
-        isSelected && "ring-2 ring-white ring-offset-2 ring-offset-background"
+        "relative group cursor-pointer rounded-xl overflow-hidden",
+        "transition-all duration-300",
+        isSelected
+          ? "ring-2 ring-brand ring-offset-2 ring-offset-background"
+          : "ring-1 ring-transparent hover:ring-foreground/10"
       )}
       style={{ aspectRatio }}
     >
       {/* Loading skeleton */}
-      {!isLoaded && (
-        <div className="absolute inset-0 bg-muted animate-pulse" />
-      )}
+      {!isLoaded && <div className="skeleton absolute inset-0" />}
 
       {/* Photo */}
       {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -47,9 +47,8 @@ const PhotoCard = memo(function PhotoCard({
         src={photo.previewUrl}
         alt={photo.originalFilename}
         className={cn(
-          "w-full h-full object-cover transition-all duration-300",
-          "group-hover:scale-[1.02]",
-          isSelected && "brightness-90",
+          "w-full h-full object-cover transition-all duration-500 ease-out",
+          "group-hover:scale-[1.06]",
           !isLoaded && "opacity-0"
         )}
         loading="lazy"
@@ -58,12 +57,12 @@ const PhotoCard = memo(function PhotoCard({
         onClick={onClick}
       />
 
-      {/* Dark overlay on hover */}
+      {/* Gradient overlay on hover / selection */}
       <div
         className={cn(
-          "absolute inset-0 bg-black/0 group-hover:bg-black/20",
-          "transition-all duration-200",
-          isSelected && "bg-black/10"
+          "absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-transparent",
+          "opacity-0 transition-opacity duration-300 group-hover:opacity-100",
+          isSelected && "opacity-100"
         )}
         onClick={onClick}
       />
@@ -75,19 +74,17 @@ const PhotoCard = memo(function PhotoCard({
           onSelect();
         }}
         className={cn(
-          "absolute top-2 right-2 z-10",
-          "transition-all duration-200",
+          "absolute top-2.5 right-2.5 z-10 rounded-full",
+          "transition-all duration-200 active:scale-90",
           "opacity-0 group-hover:opacity-100",
-          isSelected && "opacity-100"
+          isSelected && "opacity-100 animate-pop"
         )}
-        aria-label={
-          isSelected ? "Deselect photo" : "Select photo"
-        }
+        aria-label={isSelected ? "Deselect photo" : "Select photo"}
       >
         {isSelected ? (
           <CheckCircle2
-            className="h-6 w-6 text-white drop-shadow-lg"
-            fill="currentColor"
+            className="h-6 w-6 text-brand drop-shadow-lg"
+            fill="white"
           />
         ) : (
           <Circle className="h-6 w-6 text-white drop-shadow-lg" />
@@ -96,8 +93,8 @@ const PhotoCard = memo(function PhotoCard({
 
       {/* Selected indicator overlay */}
       {isSelected && (
-        <div className="absolute bottom-2 left-2 z-10">
-          <span className="bg-white text-black text-xs font-semibold px-2 py-0.5 rounded-full">
+        <div className="absolute bottom-2.5 left-2.5 z-10">
+          <span className="brand-gradient rounded-full px-2 py-0.5 text-xs font-semibold text-white shadow-brand">
             Selected
           </span>
         </div>

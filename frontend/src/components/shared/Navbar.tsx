@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { LogOut, Camera } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import ThemeToggle from "@/components/shared/ThemeToggle";
 import { useAppDispatch, useAppSelector } from "@/store/index";
 import { logoutUser } from "@/store/slices/authSlice";
 
@@ -39,6 +40,7 @@ export default function Navbar() {
 
           {/* Right side */}
           <div className="flex items-center gap-3">
+            <ThemeToggle />
             {user && (
               <div className="flex items-center gap-2.5">
                 <span className="brand-gradient flex h-8 w-8 items-center justify-center rounded-full text-xs font-semibold text-white ring-1 ring-border/50">

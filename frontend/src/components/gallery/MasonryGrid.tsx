@@ -49,7 +49,8 @@ const MasonryGrid = memo(function MasonryGrid({
       {photos.map((photo, index) => (
         <div
           key={photo.id}
-          className="break-inside-avoid mb-2"
+          className="break-inside-avoid mb-2 animate-fade-up"
+          style={{ animationDelay: `${Math.min(index, 12) * 45}ms` }}
         >
           <PhotoCard
             photo={photo}

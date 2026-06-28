@@ -323,8 +323,8 @@ export default function UploadZone({ projectId }: UploadZoneProps) {
 
   if (status === "done") {
     return (
-      <div className="rounded-xl border border-green-500/30 bg-green-500/5 p-8 text-center space-y-3">
-        <CheckCircle2 className="h-12 w-12 text-green-500 mx-auto" />
+      <div className="rounded-xl border border-green-500/30 bg-green-500/5 p-8 text-center space-y-3 animate-fade-up">
+        <CheckCircle2 className="h-12 w-12 text-green-500 mx-auto animate-pop" />
         <p className="font-semibold text-foreground">Upload Complete!</p>
         <p className="text-sm text-muted-foreground">
           All photos have been processed and are ready for your client.
@@ -351,30 +351,37 @@ export default function UploadZone({ projectId }: UploadZoneProps) {
 
   if (isActive) {
     return (
-      <div className="rounded-xl border border-border/50 bg-card p-8 space-y-4">
-        <div className="text-center space-y-2">
-          <Loader2 className="h-10 w-10 animate-spin text-primary mx-auto" />
+      <div className="rounded-xl border border-border/50 bg-card p-8 space-y-5 animate-fade-up shadow-soft">
+        <div className="text-center space-y-3">
+          <div className="relative mx-auto h-14 w-14">
+            <div className="absolute inset-0 rounded-full bg-brand/15 animate-ping" />
+            <div className="brand-gradient relative flex h-14 w-14 items-center justify-center rounded-full text-white shadow-brand">
+              <Loader2 className="h-7 w-7 animate-spin" />
+            </div>
+          </div>
           <p className="font-medium text-foreground">
             {progressPercent < 60
               ? "Extracting & optimizing photos..."
               : "Uploading to cloud..."}
           </p>
           {currentFile && (
-            <p className="text-sm text-muted-foreground">{currentFile}</p>
+            <p className="text-sm text-muted-foreground truncate">{currentFile}</p>
           )}
           <p className="text-xs text-muted-foreground">Do not close this tab</p>
         </div>
 
         <div className="space-y-1.5">
-          <div className="flex justify-between text-xs text-muted-foreground">
+          <div className="flex justify-between text-xs font-medium text-muted-foreground">
             <span>{progressPercent < 60 ? "Processing" : "Uploading"}</span>
-            <span>{progressPercent}%</span>
+            <span className="tabular-nums text-foreground">{progressPercent}%</span>
           </div>
-          <div className="h-2.5 w-full bg-secondary rounded-full overflow-hidden">
+          <div className="h-2.5 w-full overflow-hidden rounded-full bg-secondary">
             <div
-              className="h-full bg-primary rounded-full transition-all duration-300"
-              style={{ width: `${progressPercent}%` }}
-            />
+              className="brand-gradient relative h-full rounded-full transition-all duration-500 ease-out"
+              style={{ width: `${Math.max(progressPercent, 4)}%` }}
+            >
+              <div className="progress-shine absolute inset-0 rounded-full" />
+            </div>
           </div>
         </div>
       </div>
@@ -414,19 +421,26 @@ export default function UploadZone({ projectId }: UploadZoneProps) {
         <div
           {...getZipRootProps()}
           className={cn(
-            "rounded-xl border-2 border-dashed p-12 text-center cursor-pointer transition-all duration-200",
+            "group rounded-xl border-2 border-dashed p-12 text-center cursor-pointer transition-all duration-300",
             isZipDragActive
-              ? "border-primary bg-primary/5 scale-[1.01]"
-              : "border-border/50 hover:border-border hover:bg-muted/30"
+              ? "border-brand bg-brand/5 scale-[1.01] shadow-brand"
+              : "border-border/60 hover:border-brand/50 hover:bg-brand/5"
           )}
         >
           <input {...getZipInputProps()} />
           <div className="space-y-4">
-            <div className="mx-auto w-16 h-16 rounded-2xl bg-muted flex items-center justify-center">
+            <div
+              className={cn(
+                "mx-auto flex h-16 w-16 items-center justify-center rounded-2xl transition-all duration-300",
+                isZipDragActive
+                  ? "brand-gradient text-white scale-110 shadow-brand"
+                  : "bg-muted text-muted-foreground group-hover:scale-105"
+              )}
+            >
               {isZipDragActive ? (
-                <Upload className="h-8 w-8 text-primary" />
+                <Upload className="h-8 w-8 animate-bounce" />
               ) : (
-                <FileArchive className="h-8 w-8 text-muted-foreground" />
+                <FileArchive className="h-8 w-8" />
               )}
             </div>
             <div className="space-y-1">
@@ -435,7 +449,7 @@ export default function UploadZone({ projectId }: UploadZoneProps) {
               </p>
               <p className="text-sm text-muted-foreground">
                 or{" "}
-                <span className="text-primary underline underline-offset-2">
+                <span className="font-medium text-brand underline underline-offset-2">
                   browse files
                 </span>
               </p>
@@ -456,19 +470,26 @@ export default function UploadZone({ projectId }: UploadZoneProps) {
         <div
           {...getPhotosRootProps()}
           className={cn(
-            "rounded-xl border-2 border-dashed p-12 text-center cursor-pointer transition-all duration-200",
+            "group rounded-xl border-2 border-dashed p-12 text-center cursor-pointer transition-all duration-300",
             isPhotosDragActive
-              ? "border-primary bg-primary/5 scale-[1.01]"
-              : "border-border/50 hover:border-border hover:bg-muted/30"
+              ? "border-brand bg-brand/5 scale-[1.01] shadow-brand"
+              : "border-border/60 hover:border-brand/50 hover:bg-brand/5"
           )}
         >
           <input {...getPhotosInputProps()} />
           <div className="space-y-4">
-            <div className="mx-auto w-16 h-16 rounded-2xl bg-muted flex items-center justify-center">
+            <div
+              className={cn(
+                "mx-auto flex h-16 w-16 items-center justify-center rounded-2xl transition-all duration-300",
+                isPhotosDragActive
+                  ? "brand-gradient text-white scale-110 shadow-brand"
+                  : "bg-muted text-muted-foreground group-hover:scale-105"
+              )}
+            >
               {isPhotosDragActive ? (
-                <Upload className="h-8 w-8 text-primary" />
+                <Upload className="h-8 w-8 animate-bounce" />
               ) : (
-                <Images className="h-8 w-8 text-muted-foreground" />
+                <Images className="h-8 w-8" />
               )}
             </div>
             <div className="space-y-1">
@@ -477,7 +498,7 @@ export default function UploadZone({ projectId }: UploadZoneProps) {
               </p>
               <p className="text-sm text-muted-foreground">
                 or{" "}
-                <span className="text-primary underline underline-offset-2">
+                <span className="font-medium text-brand underline underline-offset-2">
                   browse files
                 </span>
               </p>

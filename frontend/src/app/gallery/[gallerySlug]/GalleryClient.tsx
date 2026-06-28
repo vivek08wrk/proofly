@@ -1,14 +1,14 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { Camera, CheckCircle2, Loader2 } from "lucide-react";
+import { Camera, CheckCircle2 } from "lucide-react";
 import { apiClient } from "@/lib/api";
 import { Photo } from "@/types/project";
 import MasonryGrid from "@/components/gallery/MasonryGrid";
 import Lightbox from "@/components/gallery/Lightbox";
 import ClientNameModal from "@/components/gallery/ClientNameModal";
 import GalleryHeader from "@/components/gallery/GalleryHeader";
-import LoadingSpinner from "@/components/shared/LoadingSpinner";
+import { Skeleton } from "@/components/ui/skeleton";
 import { getSocket } from "@/lib/socket";
 import { toast } from "sonner";
 
@@ -212,7 +212,34 @@ export default function GalleryClient({
 
   // ── Render ────────────────────────────────────────────────────
 
-  if (isLoading) return <LoadingSpinner fullScreen />;
+  if (isLoading) {
+    const heights = [220, 300, 180, 260, 340, 200, 280, 240, 310, 190, 260, 300];
+    return (
+      <div className="min-h-screen bg-background">
+        <header className="sticky top-0 z-30 w-full border-b border-border/40 bg-background/70 backdrop-blur-xl">
+          <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6">
+            <div className="flex items-center gap-3">
+              <Skeleton className="h-9 w-9 rounded-xl" />
+              <div className="space-y-1.5">
+                <Skeleton className="h-4 w-40" />
+                <Skeleton className="h-3 w-24" />
+              </div>
+            </div>
+            <Skeleton className="h-4 w-16" />
+          </div>
+        </header>
+        <div className="mx-auto max-w-7xl columns-2 px-3 py-6 sm:columns-3 sm:px-6 lg:columns-4 [column-gap:8px]">
+          {heights.map((h, i) => (
+            <Skeleton
+              key={i}
+              className="mb-2 w-full rounded-xl"
+              style={{ height: h }}
+            />
+          ))}
+        </div>
+      </div>
+    );
+  }
 
   if (error || !galleryData) {
     return (
@@ -261,6 +288,7 @@ export default function GalleryClient({
           onNext={handleLightboxNext}
           onPrev={handleLightboxPrev}
           onSelect={handlePhotoSelect}
+          onJump={setLightboxIndex}
         />
       )}
 
@@ -277,8 +305,8 @@ export default function GalleryClient({
 
       {/* Floating Selection Counter */}
       {selectedPhotoIds.size > 0 && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40">
-          <div className="flex items-center gap-2 bg-foreground text-background px-5 py-3 rounded-full shadow-2xl text-sm font-medium">
+        <div className="fixed bottom-6 left-1/2 z-40 -translate-x-1/2 animate-fade-up">
+          <div className="brand-gradient flex items-center gap-2 rounded-full px-5 py-3 text-sm font-semibold text-white shadow-brand">
             <CheckCircle2 className="h-4 w-4" />
             {selectedPhotoIds.size} photo
             {selectedPhotoIds.size === 1 ? "" : "s"} selected
